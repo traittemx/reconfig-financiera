@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Appwrite Function: join org with linking code (authenticated)",
   "main": "src/main.js",
+  "scripts": {
+    "build": "echo 'No build step'"
+  },
   "dependencies": {
     "node-appwrite": "^11.0.0"
   }

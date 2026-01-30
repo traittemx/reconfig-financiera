@@ -38,11 +38,15 @@ Para cada carpeta (`validate_linking_code`, `join_org_with_code`, `seed_default_
 
 ### 3. Código y dependencias
 
-- Incluye en la raíz del despliegue:
-  - `src/main.js` (y el resto del código si lo tienes).
-  - `package.json` con dependencia `node-appwrite` (ya hay un `package.json` en cada carpeta).
+- **Importante (Git)**: si conectas el repo completo, en cada función debes configurar **Root directory** con la carpeta de esa función, por ejemplo:
+  - Función `validate_linking_code` → Root directory: `appwrite-functions/validate_linking_code`
+  - Función `join_org_with_code` → Root directory: `appwrite-functions/join_org_with_code`
+  - Función `seed_default_categories` → Root directory: `appwrite-functions/seed_default_categories`
+  - Función `award_points` → Root directory: `appwrite-functions/award_points`
+  Así Appwrite hará `npm install` y `npm run build` solo dentro de esa carpeta (solo se instala `node-appwrite`) y no todo el proyecto.
+- Cada carpeta tiene `package.json` con `node-appwrite`, `main: "src/main.js"` y script `build` (para que el paso de build no falle).
 - Opción A – **Subir ZIP**: desde la carpeta de la función (`appwrite-functions/validate_linking_code/`), ejecuta `npm install`, luego comprime `src/`, `node_modules/` y `package.json` y sube el ZIP en **Deployments**.
-- Opción B – **Git**: conecta un repo; en **Root directory** indica la carpeta de la función (ej. `appwrite-functions/validate_linking_code`). En Build settings, **Install command**: `npm install`.
+- Opción B – **Git**: conecta el repo; en **Root directory** indica la carpeta de la función (ej. `appwrite-functions/validate_linking_code`). Build: **Install** `npm install`, **Build** `npm run build` (o deja el que venga por defecto).
 
 ### 4. Variables de entorno
 

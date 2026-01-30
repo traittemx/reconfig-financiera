@@ -3,6 +3,7 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "scripts": {
+    "build": "echo 'No build step for Appwrite Functions'",
     "start": "expo start --web",
     "seed:demo": "node scripts/seed-demo.js",
     "appwrite:create-collections": "node scripts/appwrite-create-collections.js",
