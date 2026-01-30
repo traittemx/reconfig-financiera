@@ -19,7 +19,7 @@ import { AuthInput } from '@/components/auth-input';
 
 export default function SignupScreen() {
   const router = useRouter();
-  const { refresh } = useAuth();
+  const { setSessionAndLoadProfile, refresh } = useAuth();
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -89,7 +89,11 @@ export default function SignupScreen() {
       }
       return;
     }
-    await refresh();
+    if (authData.session) {
+      await setSessionAndLoadProfile(authData.session);
+    } else {
+      await refresh();
+    }
     setLoading(false);
     router.replace('/(protected)/hoy');
   }

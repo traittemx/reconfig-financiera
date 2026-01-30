@@ -1,5 +1,5 @@
 {
-  "name": "reconfiguracion-financiera",
+  "name": "finaria",
   "main": "expo-router/entry",
   "version": "1.0.0",
   "scripts": {
@@ -10,6 +10,8 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "web:build": "expo export --platform web",
+    "deploy:web": "expo export --platform web && npx eas-cli@latest deploy",
+    "deploy:web:prod": "expo export --platform web && npx eas-cli@latest deploy --prod",
     "lint": "expo lint"
   },
   "dependencies": {

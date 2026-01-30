@@ -1,4 +1,4 @@
-# Reprogramación Financiera
+# Finaria
 
 App B2B: finanzas personales + curso de 23 días desbloqueable, vendida a empresas. La empresa paga por empleado. Suscripción manual (sin pasarela de pago).
 
@@ -68,9 +68,32 @@ npm run android
 | `npm start`   | Inicia Expo                    |
 | `npm run web` | Inicia en navegador (React Native Web) |
 | `npm run web:build` | Export estático para web (`expo export --platform web`) |
+| `npm run deploy:web` | Export + deploy preview en EAS Hosting |
+| `npm run deploy:web:prod` | Export + deploy producción en EAS Hosting |
 | `npm run ios` | iOS simulator                  |
 | `npm run android` | Android emulator            |
 | `npm run lint` | Lint con Expo                 |
+
+## Deploy web con EAS Hosting (recomendado)
+
+La forma más directa de publicar la web es usar **EAS Hosting** de Expo: el proyecto se vincula a tu cuenta en [expo.dev](https://expo.dev) y el deploy se hace desde tu máquina o con workflows.
+
+1. **Cuenta Expo:** Regístrate o inicia sesión en [expo.dev/signup](https://expo.dev/signup).
+2. **EAS CLI:** No hace falta instalarlo globalmente. Usa `npx eas-cli@latest` en cada comando (o instala global con `npm install -g eas-cli` si prefieres).
+3. **Vincular proyecto:** En la carpeta del proyecto ejecuta:
+   ```bash
+   npx eas-cli@latest login
+   npx eas-cli@latest init
+   ```
+   En `eas init` te pedirá elegir un **subdominio de preview** (ej. `finaria`). La URL de producción será `https://<subdominio>.expo.app`.
+4. **Deploy:**
+   ```bash
+   npm run deploy:web        # preview
+   npm run deploy:web:prod   # producción
+   ```
+   O manualmente: `npx expo export --platform web` y luego `npx eas-cli@latest deploy` (o `npx eas-cli@latest deploy --prod`).
+
+Las variables `EXPO_PUBLIC_SUPABASE_URL` y `EXPO_PUBLIC_SUPABASE_ANON_KEY` deben estar en tu `.env` local cuando hagas el export; EAS Hosting sirve el build estático (las env se “hornean” en el build). Para distintos entornos puedes usar [EAS Secrets](https://docs.expo.dev/eas/build-reference/variables/) en workflows.
 
 ## Deploy en Vercel (web)
 

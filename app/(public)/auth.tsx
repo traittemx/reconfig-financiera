@@ -19,7 +19,7 @@ import { AuthInput } from '@/components/auth-input';
 
 export default function AuthScreen() {
   const router = useRouter();
-  const { refresh } = useAuth();
+  const { setSessionAndLoadProfile } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -31,14 +31,23 @@ export default function AuthScreen() {
       return;
     }
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-    setLoading(false);
-    if (error) {
-      Alert.alert('Error al entrar', error.message);
-      return;
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+      if (error) {
+        Alert.alert('Error al entrar', error.message);
+        return;
+      }
+      if (!data?.session) {
+        Alert.alert('Error', 'No se recibió la sesión. Intenta de nuevo.');
+        return;
+      }
+      await setSessionAndLoadProfile(data.session);
+      router.replace('/(protected)/hoy');
+    } catch (e) {
+      Alert.alert('Error', e instanceof Error ? e.message : 'No se pudo iniciar sesión. Intenta de nuevo.');
+    } finally {
+      setLoading(false);
     }
-    await refresh();
-    router.replace('/(protected)/hoy');
   }
 
   return (

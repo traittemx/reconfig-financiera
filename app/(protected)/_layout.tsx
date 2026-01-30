@@ -13,6 +13,8 @@ export default function ProtectedLayout() {
   const pathname = usePathname();
   const { session, profile, loading, canAccessApp } = useAuth();
 
+  const loadingProfile = !!session && profile === null;
+
   useEffect(() => {
     if (loading) return;
     if (!session) {
@@ -37,11 +39,11 @@ export default function ProtectedLayout() {
     });
   }, [loading, session, profile, canAccessApp, pathname, router]);
 
-  if (loading) {
+  if (loading || loadingProfile) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
         <ActivityIndicator size="large" />
-        <Text style={{ marginTop: 8 }}>Cargando...</Text>
+        <Text style={{ marginTop: 8 }}>{loading ? 'Verificando sesión...' : 'Cargando perfil...'}</Text>
       </View>
     );
   }

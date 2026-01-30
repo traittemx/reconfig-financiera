@@ -1,7 +1,7 @@
 {
-  "name": "Reprogramación Financiera",
-  "short_name": "ReproFin",
-  "description": "Finanzas personales y curso de 23 días",
+  "name": "Finaria",
+  "short_name": "Finaria",
+  "description": "Finaria - Finanzas personales y curso de 23 días",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
@@ -11,12 +11,20 @@
     {
       "src": "/icon.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
       "src": "/icon.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }
