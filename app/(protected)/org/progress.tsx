@@ -3,7 +3,7 @@ import { View, Text, FlatList, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Button } from 'tamagui';
 import { useAuth } from '@/contexts/auth-context';
-import { supabase } from '@/lib/supabase';
+import { listDocuments, COLLECTIONS, Query, type AppwriteDocument } from '@/lib/appwrite';
 import { getDayUnlocked } from '@/lib/business-days';
 import { format } from 'date-fns';
 
@@ -24,41 +24,45 @@ export default function OrgProgressScreen() {
   useEffect(() => {
     if (!profile?.org_id) return;
     (async () => {
-      const { data: members } = await supabase
-        .from('org_members')
-        .select('user_id')
-        .eq('org_id', profile.org_id)
-        .eq('status', 'active');
+      const { data: members } = await listDocuments<AppwriteDocument>(COLLECTIONS.org_members, [
+        Query.equal('org_id', [profile.org_id!]),
+        Query.equal('status', ['active']),
+        Query.limit(200),
+      ]);
       if (!members?.length) {
         setRows([]);
         return;
       }
-      const userIds = members.map((m: { user_id: string }) => m.user_id);
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('id, full_name, start_date')
-        .in('id', userIds);
-      const { data: progress } = await supabase
-        .from('user_lesson_progress')
-        .select('user_id, day, completed_at')
-        .eq('org_id', profile.org_id)
-        .not('completed_at', 'is', null);
+      const userIds = members.map((m) => (m as AppwriteDocument).user_id as string);
+      const { data: profiles } = await listDocuments<AppwriteDocument>(COLLECTIONS.profiles, [
+        Query.equal('org_id', [profile.org_id!]),
+        Query.limit(200),
+      ]);
+      const { data: progress } = await listDocuments<AppwriteDocument>(COLLECTIONS.user_lesson_progress, [
+        Query.equal('org_id', [profile.org_id!]),
+        Query.limit(500),
+      ]);
       const progressByUser = new Map<string, { days: number[]; last: string | null }>();
-      (progress ?? []).forEach((p: { user_id: string; day: number; completed_at: string }) => {
-        if (!progressByUser.has(p.user_id)) {
-          progressByUser.set(p.user_id, { days: [], last: null });
-        }
-        const entry = progressByUser.get(p.user_id)!;
-        entry.days.push(p.day);
-        if (!entry.last || p.completed_at > entry.last) entry.last = p.completed_at;
+      progress.forEach((p) => {
+        const doc = p as AppwriteDocument;
+        const userId = doc.user_id as string;
+        const completedAt = doc.completed_at as string | null;
+        if (!completedAt) return;
+        if (!progressByUser.has(userId)) progressByUser.set(userId, { days: [], last: null });
+        const entry = progressByUser.get(userId)!;
+        const dayNum = Number(doc.day ?? 0);
+        entry.days.push(dayNum);
+        if (!entry.last || completedAt > entry.last) entry.last = completedAt;
       });
-      const list: ProgressRow[] = (profiles ?? []).map((p: { id: string; full_name: string | null; start_date: string | null }) => {
-        const entry = progressByUser.get(p.id) ?? { days: [], last: null };
-        const dayUnlocked = p.start_date ? getDayUnlocked(new Date(p.start_date)) : 0;
+      const profileById = new Map(profiles.map((p) => [(p as AppwriteDocument).$id ?? (p as { id?: string }).id, p as AppwriteDocument]));
+      const list: ProgressRow[] = userIds.map((userId) => {
+        const p = profileById.get(userId);
+        const entry = progressByUser.get(userId) ?? { days: [], last: null };
+        const startDate = p?.start_date as string | null ?? null;
         return {
-          user_id: p.id,
-          full_name: p.full_name,
-          start_date: p.start_date,
+          user_id: userId,
+          full_name: (p?.full_name as string | null) ?? null,
+          start_date: startDate,
           completed_count: entry.days.length,
           completed_days: entry.days.sort((a, b) => a - b),
           last_completed: entry.last,

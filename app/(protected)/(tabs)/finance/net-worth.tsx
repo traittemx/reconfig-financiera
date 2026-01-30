@@ -15,7 +15,7 @@ import { MotiView } from 'moti';
 import { Button } from 'tamagui';
 import { LayoutGrid, Pencil, Plus, Trash2 } from '@tamagui/lucide-icons';
 import { useAuth } from '@/contexts/auth-context';
-import { supabase } from '@/lib/supabase';
+import { listDocuments, createDocument, updateDocument, deleteDocument, COLLECTIONS, Query, type AppwriteDocument } from '@/lib/appwrite';
 
 type PhysicalAsset = {
   id: string;
@@ -42,13 +42,18 @@ export default function NetWorthScreen() {
 
   async function loadAssets() {
     if (!profile?.id || !profile.org_id) return;
-    const { data } = await supabase
-      .from('physical_assets')
-      .select('id, name, amount, created_at')
-      .eq('user_id', profile.id)
-      .eq('org_id', profile.org_id)
-      .order('created_at', { ascending: true });
-    setItems((data ?? []) as PhysicalAsset[]);
+    const { data } = await listDocuments<AppwriteDocument>(COLLECTIONS.physical_assets, [
+      Query.equal('user_id', [profile.id]),
+      Query.equal('org_id', [profile.org_id]),
+      Query.orderAsc('$createdAt'),
+      Query.limit(200),
+    ]);
+    setItems(data.map((d) => ({
+      id: (d as { $id?: string }).$id ?? (d as { id?: string }).id ?? '',
+      name: (d.name as string) ?? '',
+      amount: Number(d.amount ?? 0),
+      created_at: (d as { $createdAt?: string }).$createdAt ?? '',
+    })) as PhysicalAsset[]);
   }
 
   async function addItem() {
@@ -62,17 +67,19 @@ export default function NetWorthScreen() {
       return;
     }
     setLoading(true);
-    const { error } = await supabase.from('physical_assets').insert({
-      user_id: profile.id,
-      org_id: profile.org_id,
-      name: name.trim(),
-      amount: num,
-    });
-    setLoading(false);
-    if (error) {
-      Alert.alert('Error', error.message);
+    try {
+      await createDocument(COLLECTIONS.physical_assets, {
+        user_id: profile.id,
+        org_id: profile.org_id,
+        name: name.trim(),
+        amount: num,
+      } as Record<string, unknown>);
+    } catch (err) {
+      setLoading(false);
+      Alert.alert('Error', err instanceof Error ? err.message : 'Error al guardar');
       return;
     }
+    setLoading(false);
     setName('');
     setAmount('');
     setShowForm(false);
@@ -91,15 +98,17 @@ export default function NetWorthScreen() {
       return;
     }
     setLoading(true);
-    const { error } = await supabase
-      .from('physical_assets')
-      .update({ name: editName.trim(), amount: num })
-      .eq('id', editingItem.id);
-    setLoading(false);
-    if (error) {
-      Alert.alert('Error', error.message);
+    try {
+      await updateDocument(COLLECTIONS.physical_assets, editingItem.id, {
+        name: editName.trim(),
+        amount: num,
+      });
+    } catch (err) {
+      setLoading(false);
+      Alert.alert('Error', err instanceof Error ? err.message : 'Error al guardar');
       return;
     }
+    setLoading(false);
     setEditingItem(null);
     setEditName('');
     setEditAmount('');
@@ -118,9 +127,10 @@ export default function NetWorthScreen() {
   }
 
   async function deleteItem(item: PhysicalAsset) {
-    const { error } = await supabase.from('physical_assets').delete().eq('id', item.id);
-    if (error) {
-      Alert.alert('Error', error.message);
+    try {
+      await deleteDocument(COLLECTIONS.physical_assets, item.id);
+    } catch (err) {
+      Alert.alert('Error', err instanceof Error ? err.message : 'Error al eliminar');
       return;
     }
     loadAssets();

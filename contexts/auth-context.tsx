@@ -1,7 +1,12 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { Session } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase } from '@/lib/supabase';
+import {
+  account,
+  getDocument,
+  COLLECTIONS,
+  docToRow,
+  type AppwriteDocument,
+} from '@/lib/appwrite';
 import type { Profile, OrgSubscription } from '@/types/database';
 import { isSubscriptionValid } from '@/types/database';
 
@@ -12,6 +17,11 @@ const AUTH_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24h
 
 function delay(ms: number): Promise<never> {
   return new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms));
+}
+
+/** Minimal session shape for compatibility (Appwrite has no Session type in client; we use user id). */
+export interface AppwriteAuthSession {
+  user: { id: string; email?: string };
 }
 
 type AuthCache = { userId: string; profile: Profile; subscription: OrgSubscription | null; ts: number };
@@ -43,7 +53,11 @@ async function getAuthCacheAsync(): Promise<AuthCache | null> {
   }
 }
 
-async function setAuthCache(userId: string, profile: Profile | null, subscription: OrgSubscription | null): Promise<void> {
+async function setAuthCache(
+  userId: string,
+  profile: Profile | null,
+  subscription: OrgSubscription | null
+): Promise<void> {
   if (!profile) return;
   const data: AuthCache = { userId, profile, subscription, ts: Date.now() };
   const raw = JSON.stringify(data);
@@ -69,75 +83,79 @@ async function clearAuthCache(): Promise<void> {
   } catch {}
 }
 
+function mapSubscriptionDoc(doc: AppwriteDocument): OrgSubscription {
+  return {
+    org_id: (doc.$id ?? doc.org_id) as string,
+    status: doc.status as OrgSubscription['status'],
+    seats_total: (doc.seats_total as number) ?? 0,
+    seats_used: (doc.seats_used as number) ?? 0,
+    period_start: (doc.period_start as string) ?? null,
+    period_end: (doc.period_end as string) ?? null,
+    updated_at: (doc.$updatedAt ?? doc.updated_at) as string,
+  };
+}
+
 interface AuthState {
-  session: Session | null;
+  session: AppwriteAuthSession | null;
   profile: Profile | null;
   subscription: OrgSubscription | null;
   loading: boolean;
   canAccessApp: boolean;
   refresh: () => Promise<void>;
-  /** Tras login: usa la sesión devuelta por Supabase y carga perfil/suscripción. Evita getSession() y race con storage (PWA). */
-  setSessionAndLoadProfile: (session: Session) => Promise<void>;
+  /** After login/signup: pass user id and load profile/subscription. Returns true if profile loaded. */
+  setSessionAndLoadProfile: (userId: string) => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null);
+  const [session, setSession] = useState<AppwriteAuthSession | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [subscription, setSubscription] = useState<OrgSubscription | null>(null);
   const [loading, setLoading] = useState(true);
 
   const loadProfileAndSubscription = useCallback(async (userId: string) => {
-    const { data: prof } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single();
-    const profileData = (prof ?? null) as Profile | null;
-    setProfile(profileData);
-    const orgId = profileData?.org_id ?? null;
-    if (!orgId) {
+    try {
+      const doc = await getDocument<AppwriteDocument>(COLLECTIONS.profiles, userId);
+      const profileData = docToRow(doc) as unknown as Profile;
+      if (!profileData.id) profileData.id = userId;
+      setProfile(profileData);
+      const orgId = profileData?.org_id ?? null;
+      if (!orgId) {
+        setSubscription(null);
+        if (profileData) setAuthCache(userId, profileData, null);
+        return;
+      }
+      const subDoc = await getDocument<AppwriteDocument>(COLLECTIONS.org_subscriptions, orgId);
+      const subData = mapSubscriptionDoc(subDoc);
+      setSubscription(subData);
+      if (profileData) setAuthCache(userId, profileData, subData);
+    } catch {
+      setProfile(null);
       setSubscription(null);
-      if (profileData) setAuthCache(userId, profileData, null);
-      return;
     }
-    const { data: sub } = await supabase
-      .from('org_subscriptions')
-      .select('*')
-      .eq('org_id', orgId)
-      .single();
-    const subData = (sub ?? null) as OrgSubscription | null;
-    setSubscription(subData);
-    if (profileData) setAuthCache(userId, profileData, subData);
   }, []);
 
   const refresh = useCallback(async () => {
     setLoading(true);
-
-    let s: Session | null = null;
+    let user: { $id: string; email?: string } | null = null;
     try {
-      const result = await Promise.race([
-        supabase.auth.getSession(),
-        delay(SESSION_TIMEOUT_MS),
-      ]) as { data: { session: Session | null } };
-      s = result?.data?.session ?? null;
+      const result = await Promise.race([account.get(), delay(SESSION_TIMEOUT_MS)]);
+      user = result as { $id: string; email?: string };
     } catch {
-      s = null;
+      user = null;
     }
-    setSession(s);
     setLoading(false);
-
-    if (!s?.user) {
+    if (!user?.$id) {
+      setSession(null);
       setProfile(null);
       setSubscription(null);
       clearAuthCache();
       return;
     }
+    const userId = user.$id;
+    setSession({ user: { id: userId, email: user.email } });
 
-    const userId = s.user.id;
-
-    // PWA / reapertura: usar caché local para abrir al instante; refrescar en segundo plano
     let cached: AuthCache | null = null;
     if (typeof window !== 'undefined' && window.localStorage) {
       cached = getAuthCacheSync();
@@ -147,91 +165,76 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (cached && cached.userId === userId) {
       setProfile(cached.profile);
       setSubscription(cached.subscription);
-      loadProfileAndSubscription(userId); // refrescar en segundo plano
+      loadProfileAndSubscription(userId);
       return;
     }
-
+    setLoading(true);
     try {
-      const profilePromise = supabase.from('profiles').select('*').eq('id', userId).single();
-      const { data: p } = await Promise.race([
-        profilePromise,
-        delay(PROFILE_TIMEOUT_MS),
-      ]).catch(() => ({ data: null })) as { data: Profile | null };
-      const prof = p ?? null;
+      const doc = await getDocument<AppwriteDocument>(COLLECTIONS.profiles, userId).catch(
+        () => null
+      );
+      const prof = doc ? (docToRow(doc) as unknown as Profile) : null;
+      if (prof && !prof.id) prof.id = userId;
       setProfile(prof);
       const orgId = prof?.org_id ?? null;
       if (!orgId) {
         setSubscription(null);
         if (prof) setAuthCache(userId, prof, null);
-        return;
-      }
-      const { data: sub } = await Promise.race([
-        supabase.from('org_subscriptions').select('*').eq('org_id', orgId).single(),
-        delay(PROFILE_TIMEOUT_MS),
-      ]).catch(() => ({ data: null })) as { data: OrgSubscription | null };
-      const subData = sub ?? null;
-      setSubscription(subData);
-      if (prof) setAuthCache(userId, prof, subData);
-    } catch {
-      setProfile(null);
-      setSubscription(null);
-    }
-  }, [loadProfileAndSubscription]);
-
-  const setSessionAndLoadProfile = useCallback(async (newSession: Session) => {
-    setSession(newSession);
-    setLoading(true);
-    if (!newSession?.user) {
-      setProfile(null);
-      setSubscription(null);
-      setLoading(false);
-      return;
-    }
-    try {
-      const profilePromise = supabase.from('profiles').select('*').eq('id', newSession.user.id).single();
-      const { data: p } = await Promise.race([
-        profilePromise,
-        delay(PROFILE_TIMEOUT_MS),
-      ]).catch(() => ({ data: null })) as { data: Profile | null };
-      const prof = p ?? null;
-      setProfile(prof);
-      const orgId = prof?.org_id ?? null;
-      if (!orgId) {
-        setSubscription(null);
         setLoading(false);
         return;
       }
-      const { data: sub } = await Promise.race([
-        supabase.from('org_subscriptions').select('*').eq('org_id', orgId).single(),
-        delay(PROFILE_TIMEOUT_MS),
-      ]).catch(() => ({ data: null })) as { data: OrgSubscription | null };
-      const subData = sub ?? null;
+      const subDoc = await getDocument<AppwriteDocument>(
+        COLLECTIONS.org_subscriptions,
+        orgId
+      ).catch(() => null);
+      const subData = subDoc ? mapSubscriptionDoc(subDoc) : null;
       setSubscription(subData);
-      if (prof) setAuthCache(newSession.user.id, prof, subData);
+      if (prof) setAuthCache(userId, prof, subData);
     } catch {
       setProfile(null);
       setSubscription(null);
     } finally {
       setLoading(false);
     }
+  }, [loadProfileAndSubscription]);
+
+  const setSessionAndLoadProfile = useCallback(async (userId: string): Promise<boolean> => {
+    setSession({ user: { id: userId } });
+    setLoading(true);
+    try {
+      const doc = await Promise.race([
+        getDocument<AppwriteDocument>(COLLECTIONS.profiles, userId),
+        delay(PROFILE_TIMEOUT_MS),
+      ]).catch(() => null);
+      const prof = doc ? (docToRow(doc) as unknown as Profile) : null;
+      if (prof && !prof.id) prof.id = userId;
+      setProfile(prof);
+      const orgId = prof?.org_id ?? null;
+      if (!orgId) {
+        setSubscription(null);
+        setLoading(false);
+        return !!prof;
+      }
+      const subDoc = await getDocument<AppwriteDocument>(
+        COLLECTIONS.org_subscriptions,
+        orgId
+      ).catch(() => null);
+      const subData = subDoc ? mapSubscriptionDoc(subDoc) : null;
+      setSubscription(subData);
+      if (prof) setAuthCache(userId, prof, subData);
+      setLoading(false);
+      return true;
+    } catch {
+      setProfile(null);
+      setSubscription(null);
+      setLoading(false);
+      return false;
+    }
   }, []);
 
   useEffect(() => {
     refresh();
-    const { data: { subscription: authSub } } = supabase.auth.onAuthStateChange(async (_event, s) => {
-      setSession(s);
-      if (s?.user) {
-        await loadProfileAndSubscription(s.user.id);
-      } else {
-        setProfile(null);
-        setSubscription(null);
-        clearAuthCache();
-      }
-    });
-    return () => {
-      authSub.unsubscribe();
-    };
-  }, [loadProfileAndSubscription, refresh]);
+  }, [refresh]);
 
   const canAccessApp =
     !!session &&

@@ -1,0 +1,9 @@
+{
+  "name": "join_org_with_code",
+  "version": "1.0.0",
+  "description": "Appwrite Function: join org with linking code (authenticated)",
+  "main": "src/main.js",
+  "dependencies": {
+    "node-appwrite": "^11.0.0"
+  }
+}

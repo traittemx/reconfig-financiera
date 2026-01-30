@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/auth-context';
-import { supabase } from '@/lib/supabase';
+import { execFunction, listDocuments, COLLECTIONS, Query, type AppwriteDocument } from '@/lib/appwrite';
 import { startOfMonth, endOfMonth, format, addMonths, subMonths, differenceInMonths } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { MotiView } from 'moti';
@@ -113,53 +113,54 @@ export default function FinanceOverviewScreen() {
 
   useEffect(() => {
     if (!profile?.id || !profile.org_id) return;
-    supabase.rpc('seed_default_categories', {
+    execFunction('seed_default_categories', {
       p_org_id: profile.org_id,
       p_user_id: profile.id,
     }).then(() => {});
     const monthStart = startOfMonth(selectedMonth).toISOString();
     const monthEnd = endOfMonth(selectedMonth).toISOString();
     (async () => {
-      const { data: accounts } = await supabase
-        .from('accounts')
-        .select('id, opening_balance, type')
-        .eq('user_id', profile.id);
+      const { data: accounts } = await listDocuments<AppwriteDocument>(COLLECTIONS.accounts, [
+        Query.equal('user_id', [profile.id]),
+        Query.limit(500),
+      ]);
       let balance = 0;
-      (accounts ?? []).forEach((a: { id: string; opening_balance: number; type?: string }) => {
-        const bal = Number(a.opening_balance);
+      accounts.forEach((a) => {
+        const row = docToRow(a);
+        const bal = Number(a.opening_balance ?? 0);
         balance += (a.type === 'CREDIT' || a.type === 'CREDIT_CARD') ? -bal : bal;
       });
-      const { data: allTx } = await supabase
-        .from('transactions')
-        .select('kind, amount')
-        .eq('user_id', profile.id);
-      (allTx ?? []).forEach((t: { kind: string; amount: number }) => {
-        const amt = Number(t.amount);
+      const { data: allTx } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
+        Query.equal('user_id', [profile.id]),
+        Query.limit(5000),
+      ]);
+      allTx.forEach((t) => {
+        const amt = Number(t.amount ?? 0);
         if (t.kind === 'INCOME') balance += amt;
         else if (t.kind === 'EXPENSE') balance -= amt;
       });
       setTotalBalance(balance);
-      const { data: tx } = await supabase
-        .from('transactions')
-        .select('kind, amount, is_recurring')
-        .eq('user_id', profile.id)
-        .gte('occurred_at', monthStart)
-        .lte('occurred_at', monthEnd);
-      const realTx = (tx ?? []).filter((t: { is_recurring?: boolean }) => !t.is_recurring);
+      const { data: tx } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
+        Query.equal('user_id', [profile.id]),
+        Query.greaterThanEqual('occurred_at', monthStart),
+        Query.lessThanEqual('occurred_at', monthEnd),
+        Query.limit(1000),
+      ]);
+      const realTx = tx.filter((t) => !t.is_recurring);
       let income = 0;
       let expense = 0;
-      realTx.forEach((t: { kind: string; amount: number }) => {
-        const amt = Number(t.amount);
+      realTx.forEach((t) => {
+        const amt = Number(t.amount ?? 0);
         if (t.kind === 'INCOME') income += amt;
         else if (t.kind === 'EXPENSE') expense += amt;
       });
-      const { data: recurringTemplates } = await supabase
-        .from('transactions')
-        .select('kind, amount, recurrence_interval_months')
-        .eq('user_id', profile.id)
-        .eq('is_recurring', true);
-      (recurringTemplates ?? []).forEach((t: { kind: string; amount: number; recurrence_interval_months?: number | null }) => {
-        const interval = t.recurrence_interval_months ?? 1;
+      const { data: recurringTemplates } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
+        Query.equal('user_id', [profile.id]),
+        Query.equal('is_recurring', [true]),
+        Query.limit(200),
+      ]);
+      recurringTemplates.forEach((t) => {
+        const interval = (t.recurrence_interval_months as number) ?? 1;
         const monthlyAmt = Math.round((Number(t.amount) / interval) * 100) / 100;
         if (t.kind === 'INCOME') income += monthlyAmt;
         else if (t.kind === 'EXPENSE') expense += monthlyAmt;
@@ -175,53 +176,58 @@ export default function FinanceOverviewScreen() {
   useEffect(() => {
     if (!profile?.id) return;
     (async () => {
-      const { data: acc } = await supabase.from('accounts').select('id, name').eq('user_id', profile.id);
-      setAccountsRef((acc ?? []) as AccountRef[]);
-      const { data: cat } = await supabase
-        .from('categories')
-        .select('id, name')
-        .eq('user_id', profile.id);
-      setCategoriesRef((cat ?? []) as CategoryRef[]);
+      const { data: acc } = await listDocuments<AppwriteDocument>(COLLECTIONS.accounts, [
+        Query.equal('user_id', [profile.id]),
+        Query.limit(200),
+      ]);
+      setAccountsRef(acc.map((d) => ({ id: (d as { $id?: string }).$id ?? (d as { id?: string }).id ?? '', name: (d.name as string) ?? '' })));
+      const { data: cat } = await listDocuments<AppwriteDocument>(COLLECTIONS.categories, [
+        Query.equal('user_id', [profile.id]),
+        Query.limit(500),
+      ]);
+      setCategoriesRef(cat.map((d) => ({ id: (d as { $id?: string }).$id ?? (d as { id?: string }).id ?? '', name: (d.name as string) ?? '' })));
     })();
   }, [profile?.id]);
 
   useEffect(() => {
     if (!profile?.id) return;
     (async () => {
-      const { data: savingsAccounts } = await supabase
-        .from('accounts')
-        .select('id, name, opening_balance')
-        .eq('user_id', profile.id)
-        .eq('type', 'SAVINGS');
-      if (!savingsAccounts?.length) {
+      const { data: savingsAccounts } = await listDocuments<AppwriteDocument>(COLLECTIONS.accounts, [
+        Query.equal('user_id', [profile.id]),
+        Query.equal('type', ['SAVINGS']),
+        Query.limit(100),
+      ]);
+      if (!savingsAccounts.length) {
         setSavingsGoalsWithProgress([]);
         return;
       }
-      const accountIds = savingsAccounts.map((a: { id: string }) => a.id);
-      const { data: goals } = await supabase
-        .from('savings_goals')
-        .select('id, account_id, target_amount, name')
-        .in('account_id', accountIds);
-      if (!goals?.length) {
+      const accountIds = savingsAccounts.map((a) => (a as { $id?: string }).$id ?? (a as { id?: string }).id ?? '');
+      const { data: goals } = await listDocuments<AppwriteDocument>(COLLECTIONS.savings_goals, [
+        Query.equal('account_id', accountIds),
+        Query.limit(100),
+      ]);
+      if (!goals.length) {
         setSavingsGoalsWithProgress([]);
         return;
       }
-      const { data: tx } = await supabase
-        .from('transactions')
-        .select('kind, amount, account_id, transfer_account_id, is_recurring')
-        .eq('user_id', profile.id);
-      const transactions = (tx ?? []) as { kind: string; amount: number; account_id: string; transfer_account_id?: string | null; is_recurring?: boolean }[];
-      const list: SavingsGoalWithProgress[] = goals.map((g: { id: string; account_id: string; target_amount: number; name: string | null }) => {
-        const acc = savingsAccounts.find((a: { id: string }) => a.id === g.account_id);
-        const openingBalance = acc ? Number(acc.opening_balance) : 0;
-        const currentBalance = balanceForAccount(g.account_id, transactions, openingBalance);
-        const targetAmount = Number(g.target_amount);
+      const { data: tx } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
+        Query.equal('user_id', [profile.id]),
+        Query.limit(5000),
+      ]);
+      const transactions = tx as { kind: string; amount: number; account_id: string; transfer_account_id?: string | null; is_recurring?: boolean }[];
+      const list: SavingsGoalWithProgress[] = goals.map((g) => {
+        const gId = (g as { $id?: string }).$id ?? (g as { id?: string }).id ?? '';
+        const accountId = g.account_id as string;
+        const acc = savingsAccounts.find((a) => ((a as { $id?: string }).$id ?? (a as { id?: string }).id) === accountId);
+        const openingBalance = acc ? Number(acc.opening_balance ?? 0) : 0;
+        const currentBalance = balanceForAccount(accountId, transactions, openingBalance);
+        const targetAmount = Number(g.target_amount ?? 0);
         const progressPct = targetAmount > 0 ? Math.min(100, (currentBalance / targetAmount) * 100) : 0;
         return {
-          goalId: g.id,
-          accountId: g.account_id,
-          accountName: acc?.name ?? 'Ahorro',
-          goalName: g.name,
+          goalId: gId,
+          accountId,
+          accountName: (acc?.name as string) ?? 'Ahorro',
+          goalName: (g.name as string) ?? null,
           targetAmount,
           currentBalance,
           progressPct,
@@ -233,30 +239,50 @@ export default function FinanceOverviewScreen() {
 
   useEffect(() => {
     if (!profile?.id) return;
-    const selectTx = 'id, kind, amount, occurred_at, note, account_id, category_id, is_recurring, recurrence_period, recurrence_day_of_month, recurrence_interval_months, recurrence_total_occurrences';
     (async () => {
       try {
-        const { data: txRows, error: txErr } = await supabase
-          .from('transactions')
-          .select(selectTx)
-          .eq('user_id', profile.id)
-          .gte('occurred_at', monthStartIso)
-          .lte('occurred_at', monthEndIso)
-          .order('occurred_at', { ascending: false });
-        if (txErr) {
-          console.error('[finance index] transactions fetch error', txErr);
-          setLatestTransactions([]);
-          return;
-        }
-        const allInMonth = (txRows ?? []) as (LatestTransaction & { is_recurring?: boolean })[];
+        const { data: txRows } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
+          Query.equal('user_id', [profile.id]),
+          Query.greaterThanEqual('occurred_at', monthStartIso),
+          Query.lessThanEqual('occurred_at', monthEndIso),
+          Query.orderDesc('occurred_at'),
+          Query.limit(200),
+        ]);
+        const allInMonth = txRows.map((r) => ({
+          ...r,
+          id: (r as { $id?: string }).$id ?? (r as { id?: string }).id ?? '',
+          kind: r.kind as string,
+          amount: Number(r.amount ?? 0),
+          occurred_at: r.occurred_at as string,
+          note: r.note as string | null,
+          account_id: r.account_id as string,
+          category_id: r.category_id as string | null,
+          is_recurring: r.is_recurring as boolean | undefined,
+          recurrence_period: r.recurrence_period as string | null,
+          recurrence_day_of_month: r.recurrence_day_of_month as number | null,
+          recurrence_interval_months: r.recurrence_interval_months as number | null,
+          recurrence_total_occurrences: r.recurrence_total_occurrences as number | null,
+        })) as (LatestTransaction & { is_recurring?: boolean })[];
         const realRows = allInMonth.filter((r) => !r.is_recurring);
-        const { data: recurringTemplates, error: recErr } = await supabase
-          .from('transactions')
-          .select(selectTx)
-          .eq('user_id', profile.id)
-          .eq('is_recurring', true);
-        if (recErr) console.error('[finance index] recurring fetch error', recErr);
-        const templates = (recurringTemplates ?? []) as (LatestTransaction & { recurrence_day_of_month?: number | null; recurrence_interval_months?: number | null; recurrence_total_occurrences?: number | null })[];
+        const { data: recurringTemplates } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
+          Query.equal('user_id', [profile.id]),
+          Query.equal('is_recurring', [true]),
+          Query.limit(100),
+        ]);
+        const templates = recurringTemplates.map((t) => ({
+          ...t,
+          id: (t as { $id?: string }).$id ?? (t as { id?: string }).id ?? '',
+          kind: t.kind as string,
+          amount: Number(t.amount ?? 0),
+          occurred_at: t.occurred_at as string,
+          note: t.note as string | null,
+          account_id: t.account_id as string,
+          category_id: t.category_id as string | null,
+          is_recurring: true,
+          recurrence_day_of_month: t.recurrence_day_of_month as number | null,
+          recurrence_interval_months: t.recurrence_interval_months as number | null,
+          recurrence_total_occurrences: t.recurrence_total_occurrences as number | null,
+        })) as (LatestTransaction & { recurrence_day_of_month?: number | null; recurrence_interval_months?: number | null; recurrence_total_occurrences?: number | null })[];
         const monthStartDate = startOfMonth(selectedMonth);
         const monthEndDate = endOfMonth(selectedMonth);
         const virtuals: LatestTransaction[] = [];
@@ -295,43 +321,53 @@ export default function FinanceOverviewScreen() {
     const monthStart = startOfMonth(selectedMonth).toISOString();
     const monthEnd = endOfMonth(selectedMonth).toISOString();
     (async () => {
-      const { data } = await supabase
-        .from('transactions')
-        .select('amount, categories(name, color), is_recurring')
-        .eq('user_id', profile.id)
-        .eq('kind', 'EXPENSE')
-        .gte('occurred_at', monthStart)
-        .lte('occurred_at', monthEnd);
-      const rows = (data ?? []) as { amount: number; categories: { name: string; color?: string | null } | null; is_recurring?: boolean }[];
-      const realRows = rows.filter((r) => !r.is_recurring);
+      const { data: catList } = await listDocuments<AppwriteDocument>(COLLECTIONS.categories, [
+        Query.equal('user_id', [profile.id]),
+        Query.limit(500),
+      ]);
+      const categoryMap: Record<string, { name: string; color?: string | null }> = {};
+      catList.forEach((c) => {
+        const id = (c as { $id?: string }).$id ?? (c as { id?: string }).id ?? '';
+        categoryMap[id] = { name: (c.name as string) ?? '', color: (c.color as string | null) ?? null };
+      });
+      const { data: txRows } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
+        Query.equal('user_id', [profile.id]),
+        Query.equal('kind', ['EXPENSE']),
+        Query.greaterThanEqual('occurred_at', monthStart),
+        Query.lessThanEqual('occurred_at', monthEnd),
+        Query.limit(1000),
+      ]);
+      const realRows = txRows.filter((r) => !r.is_recurring);
       const byCategory: Record<string, { amount: number; color?: string | null }> = {};
       let total = 0;
       realRows.forEach((row) => {
-        const name = row.categories?.name ?? 'Sin categoría';
-        const amt = Number(row.amount);
+        const cid = (row.category_id as string) ?? '';
+        const name = categoryMap[cid]?.name ?? 'Sin categoría';
+        const amt = Number(row.amount ?? 0);
         const existing = byCategory[name];
         if (existing) {
           existing.amount += amt;
         } else {
-          byCategory[name] = { amount: amt, color: row.categories?.color };
+          byCategory[name] = { amount: amt, color: categoryMap[cid]?.color };
         }
         total += amt;
       });
-      const { data: recurringExpenses } = await supabase
-        .from('transactions')
-        .select('amount, category_id, recurrence_interval_months, categories(name, color)')
-        .eq('user_id', profile.id)
-        .eq('kind', 'EXPENSE')
-        .eq('is_recurring', true);
-      (recurringExpenses ?? []).forEach((r: { amount: number; category_id: string | null; recurrence_interval_months?: number | null; categories: { name: string; color?: string | null } | null }) => {
-        const interval = r.recurrence_interval_months ?? 1;
+      const { data: recurringExpenses } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
+        Query.equal('user_id', [profile.id]),
+        Query.equal('kind', ['EXPENSE']),
+        Query.equal('is_recurring', [true]),
+        Query.limit(200),
+      ]);
+      recurringExpenses.forEach((r) => {
+        const interval = (r.recurrence_interval_months as number) ?? 1;
         const monthlyAmt = Math.round((Number(r.amount) / interval) * 100) / 100;
-        const name = r.categories?.name ?? 'Sin categoría';
+        const cid = (r.category_id as string) ?? '';
+        const name = categoryMap[cid]?.name ?? 'Sin categoría';
         const existing = byCategory[name];
         if (existing) {
           existing.amount += monthlyAmt;
         } else {
-          byCategory[name] = { amount: monthlyAmt, color: r.categories?.color };
+          byCategory[name] = { amount: monthlyAmt, color: categoryMap[cid]?.color };
         }
         total += monthlyAmt;
       });
@@ -355,61 +391,70 @@ export default function FinanceOverviewScreen() {
     const monthStart = startOfMonth(selectedMonth).toISOString();
     const monthEnd = endOfMonth(selectedMonth).toISOString();
     (async () => {
-      const { data: budgetData } = await supabase
-        .from('budgets')
-        .select(`
-          id,
-          budget_items (
-            category_id,
-            limit_amount,
-            categories ( name )
-          )
-        `)
-        .eq('user_id', profile.id)
-        .eq('month', BUDGET_MONTH_KEY)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      const rawItems = budgetData?.budget_items;
-      const items = Array.isArray(rawItems) ? rawItems : [];
+      const { data: budgetList } = await listDocuments<AppwriteDocument>(COLLECTIONS.budgets, [
+        Query.equal('user_id', [profile.id]),
+        Query.equal('month', [BUDGET_MONTH_KEY]),
+        Query.orderDesc('$createdAt'),
+        Query.limit(1),
+      ]);
+      const budget = budgetList[0];
+      if (!budget) {
+        setBudgetRemaining([]);
+        return;
+      }
+      const budgetId = (budget as { $id?: string }).$id ?? (budget as { id?: string }).id ?? '';
+      const { data: items } = await listDocuments<AppwriteDocument>(COLLECTIONS.budget_items, [
+        Query.equal('budget_id', [budgetId]),
+        Query.limit(100),
+      ]);
       if (items.length === 0) {
         setBudgetRemaining([]);
         return;
       }
-      const { data: txData } = await supabase
-        .from('transactions')
-        .select('amount, category_id, is_recurring')
-        .eq('user_id', profile.id)
-        .eq('kind', 'EXPENSE')
-        .gte('occurred_at', monthStart)
-        .lte('occurred_at', monthEnd);
+      const { data: catList } = await listDocuments<AppwriteDocument>(COLLECTIONS.categories, [
+        Query.equal('user_id', [profile.id]),
+        Query.limit(500),
+      ]);
+      const categoryNames: Record<string, string> = {};
+      catList.forEach((c) => {
+        const id = (c as { $id?: string }).$id ?? (c as { id?: string }).id ?? '';
+        categoryNames[id] = (c.name as string) ?? 'Categoría';
+      });
+      const { data: txData } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
+        Query.equal('user_id', [profile.id]),
+        Query.equal('kind', ['EXPENSE']),
+        Query.greaterThanEqual('occurred_at', monthStart),
+        Query.lessThanEqual('occurred_at', monthEnd),
+        Query.limit(1000),
+      ]);
       const spentByCategory: Record<string, number> = {};
-      (txData ?? []).forEach((row: { amount: number; category_id: string | null; is_recurring?: boolean }) => {
+      txData.forEach((row) => {
         if (row.is_recurring) return;
-        const cid = row.category_id ?? '_sin_categoria';
-        const amt = Number(row.amount);
+        const cid = (row.category_id as string) ?? '_sin_categoria';
+        const amt = Number(row.amount ?? 0);
         spentByCategory[cid] = (spentByCategory[cid] ?? 0) + amt;
       });
-      const { data: recurringExpenses } = await supabase
-        .from('transactions')
-        .select('amount, category_id, recurrence_interval_months')
-        .eq('user_id', profile.id)
-        .eq('kind', 'EXPENSE')
-        .eq('is_recurring', true);
-      (recurringExpenses ?? []).forEach((r: { amount: number; category_id: string | null; recurrence_interval_months?: number | null }) => {
-        const interval = r.recurrence_interval_months ?? 1;
+      const { data: recurringExpenses } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
+        Query.equal('user_id', [profile.id]),
+        Query.equal('kind', ['EXPENSE']),
+        Query.equal('is_recurring', [true]),
+        Query.limit(200),
+      ]);
+      recurringExpenses.forEach((r) => {
+        const interval = (r.recurrence_interval_months as number) ?? 1;
         const monthlyAmt = Math.round((Number(r.amount) / interval) * 100) / 100;
-        const cid = r.category_id ?? '_sin_categoria';
+        const cid = (r.category_id as string) ?? '_sin_categoria';
         spentByCategory[cid] = (spentByCategory[cid] ?? 0) + monthlyAmt;
       });
-      const list: BudgetCategoryRemaining[] = items.map((item: { category_id: string; limit_amount: number; categories?: { name: string } | null }) => {
-        const limit = Number(item.limit_amount);
-        const spent = spentByCategory[item.category_id] ?? 0;
+      const list: BudgetCategoryRemaining[] = items.map((item) => {
+        const categoryId = item.category_id as string;
+        const limit = Number(item.limit_amount ?? 0);
+        const spent = spentByCategory[categoryId] ?? 0;
         const remaining = Math.max(0, limit - spent);
-        const categoryName = item.categories?.name ?? 'Categoría';
+        const categoryName = categoryNames[categoryId] ?? 'Categoría';
         return {
           categoryName,
-          categoryId: item.category_id,
+          categoryId,
           limit,
           spent,
           remaining,
@@ -425,14 +470,13 @@ export default function FinanceOverviewScreen() {
     const rangeStart = startOfMonth(subMonths(selectedMonth, 2)).toISOString();
     const rangeEnd = endOfMonth(selectedMonth).toISOString();
     (async () => {
-      const { data: tx } = await supabase
-        .from('transactions')
-        .select('kind, amount, occurred_at, is_recurring')
-        .eq('user_id', profile.id)
-        .gte('occurred_at', rangeStart)
-        .lte('occurred_at', rangeEnd);
-      const rows = (tx ?? []) as { kind: string; amount: number; occurred_at: string; is_recurring?: boolean }[];
-      const realRows = rows.filter((r) => !r.is_recurring);
+      const { data: tx } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
+        Query.equal('user_id', [profile.id]),
+        Query.greaterThanEqual('occurred_at', rangeStart),
+        Query.lessThanEqual('occurred_at', rangeEnd),
+        Query.limit(2000),
+      ]);
+      const realRows = tx.filter((r) => !r.is_recurring);
       const byMonth: Record<string, { income: number; expense: number }> = {};
       for (let i = 0; i < 3; i++) {
         const m = subMonths(selectedMonth, 2 - i);
@@ -440,19 +484,19 @@ export default function FinanceOverviewScreen() {
         byMonth[key] = { income: 0, expense: 0 };
       }
       realRows.forEach((t) => {
-        const key = format(new Date(t.occurred_at), 'yyyy-MM');
+        const key = format(new Date(t.occurred_at as string), 'yyyy-MM');
         if (!byMonth[key]) return;
-        const amt = Number(t.amount);
+        const amt = Number(t.amount ?? 0);
         if (t.kind === 'INCOME') byMonth[key].income += amt;
         else if (t.kind === 'EXPENSE') byMonth[key].expense += amt;
       });
-      const { data: recurringTemplates } = await supabase
-        .from('transactions')
-        .select('kind, amount, recurrence_interval_months')
-        .eq('user_id', profile.id)
-        .eq('is_recurring', true);
-      (recurringTemplates ?? []).forEach((t: { kind: string; amount: number; recurrence_interval_months?: number | null }) => {
-        const interval = t.recurrence_interval_months ?? 1;
+      const { data: recurringTemplates } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
+        Query.equal('user_id', [profile.id]),
+        Query.equal('is_recurring', [true]),
+        Query.limit(200),
+      ]);
+      recurringTemplates.forEach((t) => {
+        const interval = (t.recurrence_interval_months as number) ?? 1;
         const monthlyAmt = Math.round((Number(t.amount) / interval) * 100) / 100;
         Object.keys(byMonth).forEach((key) => {
           if (t.kind === 'INCOME') byMonth[key].income += monthlyAmt;

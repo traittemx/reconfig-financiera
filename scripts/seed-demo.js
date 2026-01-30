@@ -1,18 +1,18 @@
 /**
- * Seed demo company and demo user for Reprogramación Financiera.
+ * Seed demo company and demo user for Reconfiguración Financiera (Appwrite).
  *
  * Requires:
- *   - EXPO_PUBLIC_SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL)
- *   - SUPABASE_SERVICE_ROLE_KEY (from Supabase Dashboard → Settings → API → service_role)
+ *   - APPWRITE_ENDPOINT (e.g. https://cloud.appwrite.io/v1)
+ *   - APPWRITE_PROJECT_ID
+ *   - APPWRITE_API_KEY (API key with users.write, databases.write; from Appwrite Console → API Keys)
  *
  * Run: node scripts/seed-demo.js
- * Or with .env: ensure .env has SUPABASE_SERVICE_ROLE_KEY and EXPO_PUBLIC_SUPABASE_URL
+ * Or with .env: ensure .env has APPWRITE_ENDPOINT, APPWRITE_PROJECT_ID, APPWRITE_API_KEY
  */
 
 const path = require('path');
 const fs = require('fs');
 
-// Load .env if present (simple parser, no dotenv dependency)
 const envPath = path.resolve(__dirname, '..', '.env');
 if (fs.existsSync(envPath)) {
   const content = fs.readFileSync(envPath, 'utf8');
@@ -22,24 +22,20 @@ if (fs.existsSync(envPath)) {
   });
 }
 
-const supabaseUrl =
-  process.env.EXPO_PUBLIC_SUPABASE_URL ||
-  process.env.NEXT_PUBLIC_SUPABASE_URL ||
-  '';
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const endpoint = process.env.APPWRITE_ENDPOINT || process.env.EXPO_PUBLIC_APPWRITE_ENDPOINT || '';
+const projectId = process.env.APPWRITE_PROJECT_ID || process.env.EXPO_PUBLIC_APPWRITE_PROJECT_ID || '';
+const apiKey = process.env.APPWRITE_API_KEY || '';
 
-if (!supabaseUrl || !serviceRoleKey) {
+if (!endpoint || !projectId || !apiKey) {
   console.error(
-    'Missing env. Set EXPO_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (in .env or shell).'
+    'Missing env. Set APPWRITE_ENDPOINT, APPWRITE_PROJECT_ID, and APPWRITE_API_KEY (in .env or shell).'
   );
   process.exit(1);
 }
 
-const { createClient } = require('@supabase/supabase-js');
+const { Client, Users, Databases, ID, Query } = require('node-appwrite');
 
-const supabase = createClient(supabaseUrl, serviceRoleKey, {
-  auth: { autoRefreshToken: false, persistSession: false },
-});
+const DATABASE_ID = process.env.APPWRITE_DATABASE_ID || 'finaria';
 
 const DEMO_EMAIL = 'demo@demo.com';
 const DEMO_PASSWORD = 'demo123456';
@@ -47,137 +43,147 @@ const DEMO_ORG_NAME = 'Empresa Demo';
 const DEMO_ORG_SLUG = 'empresa-demo';
 const DEMO_FULL_NAME = 'Usuario Demo';
 
+const defaultCategories = [
+  { org_id: '', user_id: '', kind: 'EXPENSE', name: 'Alimentación', is_default: true, icon: 'UtensilsCrossed', color: '#e11d48' },
+  { org_id: '', user_id: '', kind: 'EXPENSE', name: 'Transporte', is_default: true, icon: 'Car', color: '#2563eb' },
+  { org_id: '', user_id: '', kind: 'EXPENSE', name: 'Vivienda', is_default: true, icon: 'Home', color: '#16a34a' },
+  { org_id: '', user_id: '', kind: 'EXPENSE', name: 'Salud', is_default: true, icon: 'HeartPulse', color: '#dc2626' },
+  { org_id: '', user_id: '', kind: 'EXPENSE', name: 'Entretenimiento', is_default: true, icon: 'Gamepad2', color: '#7c3aed' },
+  { org_id: '', user_id: '', kind: 'EXPENSE', name: 'Educación', is_default: true, icon: 'GraduationCap', color: '#ea580c' },
+  { org_id: '', user_id: '', kind: 'EXPENSE', name: 'Otros gastos', is_default: true, icon: 'Receipt', color: '#64748b' },
+  { org_id: '', user_id: '', kind: 'INCOME', name: 'Nómina', is_default: true, icon: 'Wallet', color: '#0d9488' },
+  { org_id: '', user_id: '', kind: 'INCOME', name: 'Freelance', is_default: true, icon: 'Briefcase', color: '#be185d' },
+  { org_id: '', user_id: '', kind: 'INCOME', name: 'Otros ingresos', is_default: true, icon: 'DollarSign', color: '#0891b2' },
+];
+
 async function main() {
+  const client = new Client().setEndpoint(endpoint).setProject(projectId).setKey(apiKey);
+  const usersApi = new Users(client);
+  const databases = new Databases(client);
+
   console.log('Creating demo user and company...');
 
-  // 1. Create auth user (service role can create users)
-  const { data: userData, error: userError } = await supabase.auth.admin.createUser({
-    email: DEMO_EMAIL,
-    password: DEMO_PASSWORD,
-    email_confirm: true,
-    user_metadata: { full_name: DEMO_FULL_NAME },
-  });
-
   let userId;
-  if (userError) {
-    if (
-      userError.message &&
-      (userError.message.includes('already been registered') || userError.message.includes('already exists'))
-    ) {
-      console.log('Demo user already exists. Fetching existing user...');
-      const { data: listData } = await supabase.auth.admin.listUsers({ per_page: 1000 });
-      const existingUser = listData?.users?.find((u) => u.email === DEMO_EMAIL);
-      if (!existingUser) {
-        console.error('User exists but could not be fetched. Error:', userError.message);
+  try {
+    const userList = await usersApi.list();
+    const existing = userList.users.find((u) => u.email === DEMO_EMAIL);
+    if (existing) {
+      userId = existing.$id;
+      console.log('Demo user already exists:', userId);
+    } else {
+      const created = await usersApi.create(ID.unique(), DEMO_EMAIL, DEMO_PASSWORD, DEMO_FULL_NAME);
+      userId = created.$id;
+      console.log('Demo user created:', userId);
+    }
+  } catch (e) {
+    if (e.message && e.message.includes('already exists')) {
+      const userList = await usersApi.list();
+      const existing = userList.users.find((u) => u.email === DEMO_EMAIL);
+      userId = existing ? existing.$id : null;
+      if (!userId) {
+        console.error('User exists but could not be fetched:', e.message);
         process.exit(1);
       }
-      userId = existingUser.id;
+      console.log('Demo user (existing):', userId);
     } else {
-      console.error('Error creating user:', userError.message);
+      console.error('Error creating user:', e.message);
       process.exit(1);
     }
-  } else {
-    userId = userData.user.id;
-    console.log('Demo user created:', userId);
   }
 
-  // 2. Organization
-  const { data: org, error: orgError } = await supabase
-    .from('organizations')
-    .select('id')
-    .eq('slug', DEMO_ORG_SLUG)
-    .single();
-
   let orgId;
-  if (org) {
-    orgId = org.id;
+  const orgList = await databases.listDocuments(DATABASE_ID, 'organizations', [
+    Query.equal('slug', [DEMO_ORG_SLUG]),
+    Query.limit(1),
+  ]);
+  if (orgList.documents && orgList.documents.length > 0) {
+    orgId = orgList.documents[0].$id;
     console.log('Demo organization already exists:', orgId);
   } else {
-    const { data: newOrg, error: insertOrgError } = await supabase
-      .from('organizations')
-      .insert({ name: DEMO_ORG_NAME, slug: DEMO_ORG_SLUG })
-      .select('id')
-      .single();
-    if (insertOrgError) {
-      console.error('Error creating organization:', insertOrgError.message);
-      process.exit(1);
-    }
-    orgId = newOrg.id;
+    const newOrg = await databases.createDocument(
+      DATABASE_ID,
+      'organizations',
+      ID.unique(),
+      {
+        name: DEMO_ORG_NAME,
+        slug: DEMO_ORG_SLUG,
+        created_at: new Date().toISOString(),
+      }
+    );
+    orgId = newOrg.$id;
     console.log('Demo organization created:', orgId);
   }
 
-  // 3. org_members
-  const { error: memberError } = await supabase.from('org_members').upsert(
-    {
+  const memberId = `${orgId}_${userId}`;
+  try {
+    await databases.getDocument(DATABASE_ID, 'org_members', memberId);
+    console.log('Org membership already exists.');
+  } catch {
+    await databases.createDocument(DATABASE_ID, 'org_members', memberId, {
       org_id: orgId,
       user_id: userId,
       role_in_org: 'ORG_ADMIN',
       status: 'active',
-    },
-    { onConflict: 'org_id,user_id' }
-  );
-  if (memberError) {
-    console.error('Error upserting org_members:', memberError.message);
-    process.exit(1);
+      created_at: new Date().toISOString(),
+    });
+    console.log('Org membership set.');
   }
-  console.log('Org membership set.');
 
-  // 4. org_subscriptions (only if we just created the org)
-  const { data: sub } = await supabase.from('org_subscriptions').select('org_id').eq('org_id', orgId).single();
-  if (!sub) {
+  try {
+    await databases.getDocument(DATABASE_ID, 'org_subscriptions', orgId);
+    console.log('Org subscription already exists.');
+  } catch {
     const periodEnd = new Date();
     periodEnd.setDate(periodEnd.getDate() + 14);
-    await supabase.from('org_subscriptions').insert({
-      org_id: orgId,
+    await databases.createDocument(DATABASE_ID, 'org_subscriptions', orgId, {
       status: 'trial',
       seats_total: 10,
       seats_used: 1,
       period_start: new Date().toISOString().slice(0, 10),
       period_end: periodEnd.toISOString().slice(0, 10),
+      updated_at: new Date().toISOString(),
     });
     console.log('Org subscription created.');
   }
 
-  // 5. profiles
-  const { error: profileError } = await supabase.from('profiles').upsert(
-    {
-      id: userId,
+  try {
+    await databases.getDocument(DATABASE_ID, 'profiles', userId);
+    await databases.updateDocument(DATABASE_ID, 'profiles', userId, {
       full_name: DEMO_FULL_NAME,
       org_id: orgId,
       role: 'ORG_ADMIN',
       start_date: new Date().toISOString().slice(0, 10),
       updated_at: new Date().toISOString(),
-    },
-    { onConflict: 'id' }
-  );
-  if (profileError) {
-    console.error('Error upserting profile:', profileError.message);
-    process.exit(1);
+    });
+    console.log('Profile updated.');
+  } catch {
+    await databases.createDocument(DATABASE_ID, 'profiles', userId, {
+      full_name: DEMO_FULL_NAME,
+      org_id: orgId,
+      role: 'ORG_ADMIN',
+      start_date: new Date().toISOString().slice(0, 10),
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+    console.log('Profile set.');
   }
-  console.log('Profile set.');
 
-  // 6. Default categories for demo user (same as seed_default_categories)
-  const { data: existingCat } = await supabase
-    .from('categories')
-    .select('id')
-    .eq('org_id', orgId)
-    .eq('user_id', userId)
-    .limit(1)
-    .single();
-  if (!existingCat) {
-    const defaults = [
-      { org_id: orgId, user_id: userId, kind: 'EXPENSE', name: 'Alimentación', is_default: true, icon: 'UtensilsCrossed', color: '#e11d48' },
-      { org_id: orgId, user_id: userId, kind: 'EXPENSE', name: 'Transporte', is_default: true, icon: 'Car', color: '#2563eb' },
-      { org_id: orgId, user_id: userId, kind: 'EXPENSE', name: 'Vivienda', is_default: true, icon: 'Home', color: '#16a34a' },
-      { org_id: orgId, user_id: userId, kind: 'EXPENSE', name: 'Salud', is_default: true, icon: 'HeartPulse', color: '#dc2626' },
-      { org_id: orgId, user_id: userId, kind: 'EXPENSE', name: 'Entretenimiento', is_default: true, icon: 'Gamepad2', color: '#7c3aed' },
-      { org_id: orgId, user_id: userId, kind: 'EXPENSE', name: 'Educación', is_default: true, icon: 'GraduationCap', color: '#ea580c' },
-      { org_id: orgId, user_id: userId, kind: 'EXPENSE', name: 'Otros gastos', is_default: true, icon: 'Receipt', color: '#64748b' },
-      { org_id: orgId, user_id: userId, kind: 'INCOME', name: 'Nómina', is_default: true, icon: 'Wallet', color: '#0d9488' },
-      { org_id: orgId, user_id: userId, kind: 'INCOME', name: 'Freelance', is_default: true, icon: 'Briefcase', color: '#be185d' },
-      { org_id: orgId, user_id: userId, kind: 'INCOME', name: 'Otros ingresos', is_default: true, icon: 'DollarSign', color: '#0891b2' },
-    ];
-    await supabase.from('categories').insert(defaults);
+  const catList = await databases.listDocuments(DATABASE_ID, 'categories', [
+    Query.equal('org_id', [orgId]),
+    Query.equal('user_id', [userId]),
+    Query.limit(1),
+  ]);
+  if (catList.documents && catList.documents.length > 0) {
+    console.log('Default categories already exist.');
+  } else {
+    for (const c of defaultCategories) {
+      await databases.createDocument(DATABASE_ID, 'categories', ID.unique(), {
+        ...c,
+        org_id: orgId,
+        user_id: userId,
+        created_at: new Date().toISOString(),
+      });
+    }
     console.log('Default categories created.');
   }
 

@@ -3,7 +3,15 @@ import { View, Text, FlatList, TextInput, StyleSheet, Alert, Platform } from 're
 import { useRouter } from 'expo-router';
 import { Button } from 'tamagui';
 import { useAuth } from '@/contexts/auth-context';
-import { supabase } from '@/lib/supabase';
+import {
+  listDocuments,
+  getDocument,
+  createDocument,
+  COLLECTIONS,
+  Query,
+  ID,
+  type AppwriteDocument,
+} from '@/lib/appwrite';
 
 function generateInviteToken(): string {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
@@ -24,18 +32,38 @@ export default function OrgEmployeesScreen() {
   useEffect(() => {
     if (!profile?.org_id) return;
     (async () => {
-      const { data: sub } = await supabase
-        .from('org_subscriptions')
-        .select('seats_used, seats_total')
-        .eq('org_id', profile.org_id)
-        .single();
-      setSubscription(sub ?? null);
-      const { data } = await supabase
-        .from('org_members')
-        .select('user_id, role_in_org, status, profiles(full_name)')
-        .eq('org_id', profile.org_id)
-        .eq('status', 'active');
-      setMembers((data ?? []) as OrgMember[]);
+      try {
+        const sub = await getDocument<AppwriteDocument>(COLLECTIONS.org_subscriptions, profile.org_id!);
+        setSubscription({
+          seats_used: (sub.seats_used as number) ?? 0,
+          seats_total: (sub.seats_total as number) ?? 0,
+        });
+      } catch {
+        setSubscription(null);
+      }
+      const { data: membersData } = await listDocuments<AppwriteDocument>(COLLECTIONS.org_members, [
+        Query.equal('org_id', [profile.org_id!]),
+        Query.equal('status', ['active']),
+        Query.limit(200),
+      ]);
+      const userIds = membersData.map((m) => (m as AppwriteDocument).user_id as string);
+      const profileMap = new Map<string, string | null>();
+      for (const uid of userIds) {
+        try {
+          const p = await getDocument<AppwriteDocument>(COLLECTIONS.profiles, uid);
+          profileMap.set(uid, (p.full_name as string | null) ?? null);
+        } catch {}
+      }
+      const list: OrgMember[] = membersData.map((m) => {
+        const doc = m as AppwriteDocument;
+        return {
+          user_id: doc.user_id as string,
+          role_in_org: doc.role_in_org as string,
+          status: doc.status as string,
+          profiles: { full_name: profileMap.get(doc.user_id as string) ?? null },
+        };
+      });
+      setMembers(list);
     })();
   }, [profile?.org_id]);
 
@@ -46,23 +74,24 @@ export default function OrgEmployeesScreen() {
       return;
     }
     setLoading(true);
-    const token = generateInviteToken();
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-    const { error } = await supabase.from('org_invites').insert({
-      org_id: profile.org_id,
-      email: inviteEmail.trim().toLowerCase(),
-      role: inviteRole,
-      token,
-      expires_at: expiresAt,
-    });
-    setLoading(false);
-    if (error) {
-      Alert.alert('Error', error.message);
-      return;
+    try {
+      const token = generateInviteToken();
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      await createDocument(COLLECTIONS.org_invites, {
+        org_id: profile.org_id,
+        email: inviteEmail.trim().toLowerCase(),
+        role: inviteRole,
+        token,
+        expires_at: expiresAt,
+        created_at: new Date().toISOString(),
+      }, ID.unique());
+      const link = `${typeof window !== 'undefined' ? window.location?.origin : ''}/invite/${token}`;
+      Alert.alert('Invitación creada', `Envía este enlace por email: ${link}`);
+      setInviteEmail('');
+    } catch (e) {
+      Alert.alert('Error', e instanceof Error ? e.message : 'No se pudo crear la invitación');
     }
-    const link = `${typeof window !== 'undefined' ? window.location?.origin : ''}/invite/${token}`;
-    Alert.alert('Invitación creada', `Envía este enlace por email: ${link}`);
-    setInviteEmail('');
+    setLoading(false);
   }
 
   return (

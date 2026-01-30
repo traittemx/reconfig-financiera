@@ -4,9 +4,7 @@ import { useRouter } from 'expo-router';
 import { Button } from 'tamagui';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
-import { supabase } from '@/lib/supabase';
-
-const BUCKET = 'lesson-audios';
+import { listDocuments, updateDocument, COLLECTIONS, Query, type AppwriteDocument } from '@/lib/appwrite';
 
 type Lesson = {
   day: number;
@@ -28,8 +26,22 @@ export default function SuperadminLessonsScreen() {
   const [uploading, setUploading] = useState(false);
 
   const loadLessons = useCallback(async () => {
-    const { data } = await supabase.from('lessons').select('day, title, summary, mission, audio_url').order('day');
-    setLessons((data ?? []) as Lesson[]);
+    const { data } = await listDocuments<AppwriteDocument & { day?: number; title?: string; summary?: string | null; mission?: string | null; audio_url?: string | null }>(
+      COLLECTIONS.lessons,
+      [Query.orderAsc('day'), Query.limit(50)]
+    );
+    const rows = data.map((doc) => {
+      const id = (doc as { $id?: string }).$id ?? (doc as { id?: string }).id;
+      const dayNum = typeof doc.day === 'number' ? doc.day : parseInt(String(id ?? '0'), 10);
+      return {
+        day: dayNum,
+        title: doc.title ?? '',
+        summary: doc.summary ?? null,
+        mission: doc.mission ?? null,
+        audio_url: doc.audio_url ?? null,
+      };
+    });
+    setLessons(rows as Lesson[]);
   }, []);
 
   useEffect(() => {
@@ -63,17 +75,14 @@ export default function SuperadminLessonsScreen() {
       const byteNumbers = new Uint8Array(byteChars.length);
       for (let i = 0; i < byteChars.length; i++) byteNumbers[i] = byteChars.charCodeAt(i);
       const blob = new Blob([byteNumbers], { type: file.mimeType ?? 'audio/mpeg' });
-      const { error } = await supabase.storage.from(BUCKET).upload(path, blob, {
-        contentType: file.mimeType ?? 'audio/mpeg',
-        upsert: true,
-      });
+      const { storage, STORAGE_BUCKET_LESSON_AUDIO } = await import('@/lib/appwrite');
+      const fileId = path.replace(/[^a-zA-Z0-9._-]/g, '_');
+      await storage.createFile(STORAGE_BUCKET_LESSON_AUDIO, fileId, blob);
       setUploading(false);
-      if (error) {
-        Alert.alert('Error al subir', error.message);
-        return;
-      }
-      const { data: urlData } = supabase.storage.from(BUCKET).getPublicUrl(path);
-      setEditAudioUrl(urlData.publicUrl);
+      const endpoint = process.env.EXPO_PUBLIC_APPWRITE_ENDPOINT ?? '';
+      const projectId = process.env.EXPO_PUBLIC_APPWRITE_PROJECT_ID ?? '';
+      const fileViewUrl = `${endpoint}/storage/buckets/${STORAGE_BUCKET_LESSON_AUDIO}/files/${fileId}/view?project=${projectId}`;
+      setEditAudioUrl(fileViewUrl);
     } catch (e) {
       setUploading(false);
       Alert.alert('Error', e instanceof Error ? e.message : 'No se pudo seleccionar el archivo');
@@ -87,20 +96,19 @@ export default function SuperadminLessonsScreen() {
   async function saveLesson() {
     if (!editing) return;
     setSaving(true);
-    const { error } = await supabase
-      .from('lessons')
-      .update({
+    try {
+      await updateDocument(COLLECTIONS.lessons, String(editing.day), {
         title: editTitle.trim() || editing.title,
         summary: editSummary.trim() || null,
         mission: editMission.trim() || null,
         audio_url: editAudioUrl,
-      })
-      .eq('day', editing.day);
-    setSaving(false);
-    if (error) {
-      Alert.alert('Error', error.message);
+      });
+    } catch (err) {
+      setSaving(false);
+      Alert.alert('Error', err instanceof Error ? err.message : 'Error al guardar');
       return;
     }
+    setSaving(false);
     setEditing(null);
     await loadLessons();
   }

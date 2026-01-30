@@ -12,7 +12,7 @@ import {
 import { Link, useRouter } from 'expo-router';
 import { Button } from 'tamagui';
 import { Mail, Lock, Eye, EyeOff } from '@tamagui/lucide-icons';
-import { supabase } from '@/lib/supabase';
+import { account } from '@/lib/appwrite';
 import { useAuth } from '@/contexts/auth-context';
 import { AuthIllustration } from '@/components/auth-illustration';
 import { AuthInput } from '@/components/auth-input';
@@ -32,16 +32,22 @@ export default function AuthScreen() {
     }
     setLoading(true);
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-      if (error) {
-        Alert.alert('Error al entrar', error.message);
-        return;
-      }
-      if (!data?.session) {
+      await account.createEmailPasswordSession(email.trim(), password);
+      const user = await account.get();
+      if (!user?.$id) {
         Alert.alert('Error', 'No se recibió la sesión. Intenta de nuevo.');
+        setLoading(false);
         return;
       }
-      await setSessionAndLoadProfile(data.session);
+      const profileLoaded = await setSessionAndLoadProfile(user.$id);
+      if (!profileLoaded) {
+        Alert.alert(
+          'No se pudo cargar tu perfil',
+          'Revisa tu conexión e intenta de nuevo. Si el problema continúa, cierra la app y ábrela otra vez.'
+        );
+        setLoading(false);
+        return;
+      }
       router.replace('/(protected)/hoy');
     } catch (e) {
       Alert.alert('Error', e instanceof Error ? e.message : 'No se pudo iniciar sesión. Intenta de nuevo.');

@@ -34,6 +34,10 @@ yarn-error.*
 .env
 .env*.local
 
+# MCP with API key (keep .cursor/mcp.json only if using placeholder)
+# If you add your real API key to .cursor/mcp.json, add it to gitignore:
+.cursor/mcp.json
+
 # typescript
 *.tsbuildinfo
 

@@ -17,7 +17,7 @@ import { PieChart, Pencil, Trash2 } from '@tamagui/lucide-icons';
 import { getCategoryIcon, getCategoryColor } from '@/lib/category-icons';
 import { useAuth } from '@/contexts/auth-context';
 import { usePoints } from '@/contexts/points-context';
-import { supabase } from '@/lib/supabase';
+import { listDocuments, createDocument, updateDocument, deleteDocument, COLLECTIONS, Query, type AppwriteDocument } from '@/lib/appwrite';
 import { awardPoints } from '@/lib/points';
 import { PointsRewardModal } from '@/components/PointsRewardModal';
 
@@ -57,13 +57,19 @@ export default function BudgetsScreen() {
   useEffect(() => {
     if (!profile?.id || !profile.org_id) return;
     (async () => {
-      const { data } = await supabase
-        .from('categories')
-        .select('id, name, kind, icon, color')
-        .eq('user_id', profile.id)
-        .in('kind', ['INCOME', 'EXPENSE'])
-        .order('name');
-      setCategories((data ?? []) as Category[]);
+      const { data } = await listDocuments<AppwriteDocument>(COLLECTIONS.categories, [
+        Query.equal('user_id', [profile.id]),
+        Query.equal('kind', ['INCOME', 'EXPENSE']),
+        Query.orderAsc('name'),
+        Query.limit(500),
+      ]);
+      setCategories(data.map((d) => ({
+        id: (d as { $id?: string }).$id ?? (d as { id?: string }).id ?? '',
+        name: (d.name as string) ?? '',
+        kind: (d.kind as string) ?? '',
+        icon: (d.icon as string) ?? null,
+        color: (d.color as string) ?? null,
+      })) as Category[]);
     })();
   }, [profile?.id, profile?.org_id]);
 
@@ -73,23 +79,41 @@ export default function BudgetsScreen() {
   }, [profile?.id]);
 
   async function loadBudgets() {
-    const { data } = await supabase
-      .from('budgets')
-      .select(`
-        id,
-        month,
-        name,
-        budget_items (
-          id,
-          category_id,
-          limit_amount,
-          categories ( name )
-        )
-      `)
-      .eq('user_id', profile!.id)
-      .eq('month', FIXED_BUDGET_MONTH)
-      .order('created_at', { ascending: false });
-    const list = (data ?? []) as BudgetWithItems[];
+    if (!profile?.id) return;
+    const { data: budgetList } = await listDocuments<AppwriteDocument>(COLLECTIONS.budgets, [
+      Query.equal('user_id', [profile.id]),
+      Query.equal('month', [FIXED_BUDGET_MONTH]),
+      Query.orderDesc('$createdAt'),
+      Query.limit(10),
+    ]);
+    const { data: catList } = await listDocuments<AppwriteDocument>(COLLECTIONS.categories, [
+      Query.equal('user_id', [profile.id]),
+      Query.limit(500),
+    ]);
+    const categoryNames: Record<string, string> = {};
+    catList.forEach((c) => {
+      const id = (c as { $id?: string }).$id ?? (c as { id?: string }).id ?? '';
+      categoryNames[id] = (c.name as string) ?? '';
+    });
+    const list: BudgetWithItems[] = [];
+    for (const b of budgetList) {
+      const budgetId = (b as { $id?: string }).$id ?? (b as { id?: string }).id ?? '';
+      const { data: items } = await listDocuments<AppwriteDocument>(COLLECTIONS.budget_items, [
+        Query.equal('budget_id', [budgetId]),
+        Query.limit(100),
+      ]);
+      list.push({
+        id: budgetId,
+        month: (b.month as string) ?? FIXED_BUDGET_MONTH,
+        name: (b.name as string) ?? 'Presupuesto',
+        budget_items: items.map((i) => ({
+          id: (i as { $id?: string }).$id ?? (i as { id?: string }).id ?? '',
+          category_id: i.category_id as string,
+          limit_amount: Number(i.limit_amount ?? 0),
+          categories: { name: categoryNames[(i.category_id as string) ?? ''] ?? 'Categoría' },
+        })),
+      });
+    }
     setBudgets(list);
   }
 
@@ -110,22 +134,13 @@ export default function BudgetsScreen() {
     if (existing) {
       budgetId = existing.id;
     } else {
-      const { data: newBudget, error: errBudget } = await supabase
-        .from('budgets')
-        .insert({
-          org_id: profile.org_id,
-          user_id: profile.id,
-          month: FIXED_BUDGET_MONTH,
-          name: 'Presupuesto',
-        })
-        .select('id')
-        .single();
-      if (errBudget) {
-        setLoading(false);
-        Alert.alert('Error', errBudget.message);
-        return;
-      }
-      budgetId = newBudget?.id ?? null;
+      const result = await createDocument(COLLECTIONS.budgets, {
+        org_id: profile.org_id,
+        user_id: profile.id,
+        month: FIXED_BUDGET_MONTH,
+        name: 'Presupuesto',
+      } as Record<string, unknown>);
+      budgetId = (result as { $id?: string }).$id ?? (result as { id?: string }).id ?? null;
     }
     if (!budgetId) {
       setLoading(false);
@@ -133,31 +148,32 @@ export default function BudgetsScreen() {
     }
     const existingItem = existing?.budget_items?.find((i) => i.category_id === categoryId);
     if (existingItem) {
-      const { error } = await supabase
-        .from('budget_items')
-        .update({ limit_amount: amount })
-        .eq('id', existingItem.id);
-      setLoading(false);
-      if (error) {
-        Alert.alert('Error', error.message);
+      try {
+        await updateDocument(COLLECTIONS.budget_items, existingItem.id, { limit_amount: amount });
+      } catch (err) {
+        setLoading(false);
+        Alert.alert('Error', err instanceof Error ? err.message : 'Error al guardar');
         return;
       }
+      setLoading(false);
     } else {
-      const { error } = await supabase.from('budget_items').insert({
-        budget_id: budgetId,
-        category_id: categoryId,
-        limit_amount: amount,
-      });
-      setLoading(false);
-      if (error) {
-        Alert.alert('Error', error.message);
+      try {
+        await createDocument(COLLECTIONS.budget_items, {
+          budget_id: budgetId,
+          category_id: categoryId,
+          limit_amount: amount,
+        } as Record<string, unknown>);
+        const pointsAwarded = await awardPoints(profile.org_id, profile.id, 'CREATE_BUDGET', 'budgets', budgetId);
+        if (pointsAwarded > 0) {
+          setRewardToShow({ points: pointsAwarded, message: '¡Presupuesto definido!' });
+        }
+      } catch (err) {
+        setLoading(false);
+        Alert.alert('Error', err instanceof Error ? err.message : 'Error al guardar');
         return;
-      }
-      const pointsAwarded = await awardPoints(profile.org_id, profile.id, 'CREATE_BUDGET', 'budgets', budgetId);
-      if (pointsAwarded > 0) {
-        setRewardToShow({ points: pointsAwarded, message: '¡Presupuesto definido!' });
       }
     }
+    setLoading(false);
     setLimitAmount('');
     setCategoryId('');
     setShowForm(false);
@@ -172,15 +188,14 @@ export default function BudgetsScreen() {
       return;
     }
     setLoading(true);
-    const { error } = await supabase
-      .from('budget_items')
-      .update({ limit_amount: amount })
-      .eq('id', editingItem.item.id);
-    setLoading(false);
-    if (error) {
-      Alert.alert('Error', error.message);
+    try {
+      await updateDocument(COLLECTIONS.budget_items, editingItem.item.id, { limit_amount: amount });
+    } catch (err) {
+      setLoading(false);
+      Alert.alert('Error', err instanceof Error ? err.message : 'Error al guardar');
       return;
     }
+    setLoading(false);
     setEditingItem(null);
     setEditAmount('');
     loadBudgets();
@@ -202,14 +217,17 @@ export default function BudgetsScreen() {
   }
 
   async function deleteBudgetItem(budget: BudgetWithItems, item: BudgetItem) {
-    const { error } = await supabase.from('budget_items').delete().eq('id', item.id);
-    if (error) {
-      Alert.alert('Error', error.message);
+    try {
+      await deleteDocument(COLLECTIONS.budget_items, item.id);
+    } catch (err) {
+      Alert.alert('Error', err instanceof Error ? err.message : 'Error al eliminar');
       return;
     }
     const remaining = (budget.budget_items ?? []).filter((i) => i.id !== item.id);
     if (remaining.length === 0) {
-      await supabase.from('budgets').delete().eq('id', budget.id);
+      try {
+        await deleteDocument(COLLECTIONS.budgets, budget.id);
+      } catch {}
     }
     loadBudgets();
   }

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
-import { supabase } from '@/lib/supabase';
+import { listDocuments, COLLECTIONS, Query } from '@/lib/appwrite';
 import { format } from 'date-fns';
 import { saveEmotionalCheckin } from '@/lib/pilot';
 
@@ -24,15 +24,14 @@ export function EmotionalCheckin({ userId, date = new Date(), compact = false }:
 
   useEffect(() => {
     const dateStr = format(date, 'yyyy-MM-dd');
-    supabase
-      .from('pilot_emotional_checkins')
-      .select('value')
-      .eq('user_id', userId)
-      .eq('checkin_date', dateStr)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data?.value) setSelected((data as { value: string }).value);
-      });
+    listDocuments(COLLECTIONS.pilot_emotional_checkins, [
+      Query.equal('user_id', [userId]),
+      Query.equal('checkin_date', [dateStr]),
+      Query.limit(1),
+    ]).then(({ data }) => {
+      const doc = data[0];
+      if ((doc as { value?: string })?.value) setSelected((doc as { value: string }).value);
+    });
   }, [userId, date]);
 
   async function handleSelect(value: string) {

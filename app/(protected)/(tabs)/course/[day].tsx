@@ -8,7 +8,17 @@ import * as Haptics from 'expo-haptics';
 import { useAuth } from '@/contexts/auth-context';
 import { addBusinessDays } from 'date-fns';
 import { getDayUnlocked } from '@/lib/business-days';
-import { supabase } from '@/lib/supabase';
+import {
+  getDocument,
+  listDocuments,
+  createDocument,
+  updateDocument,
+  COLLECTIONS,
+  Query,
+  ID,
+  type AppwriteDocument,
+} from '@/lib/appwrite';
+import { awardPoints } from '@/lib/points';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { LessonAudioPlayer } from '@/components/course/LessonAudioPlayer';
@@ -29,16 +39,31 @@ export default function LessonScreen() {
   useEffect(() => {
     if (!dayNum || dayNum < 1 || dayNum > 23) return;
     (async () => {
-      const { data } = await supabase.from('lessons').select('*').eq('day', dayNum).single();
-      if (data) setLesson(data);
+      try {
+        const doc = await getDocument<AppwriteDocument>(COLLECTIONS.lessons, String(dayNum));
+        setLesson({
+          day: dayNum,
+          title: (doc.title as string) ?? '',
+          summary: (doc.summary as string | null) ?? null,
+          mission: (doc.mission as string | null) ?? null,
+          audio_url: (doc.audio_url as string | null) ?? null,
+        });
+      } catch {
+        setLesson(null);
+      }
       if (!profile?.id || !profile.org_id) return;
-      const { data: prog } = await supabase
-        .from('user_lesson_progress')
-        .select('completed_at')
-        .eq('user_id', profile.id)
-        .eq('day', dayNum)
-        .single();
-      if (prog) setCompletedAt(prog.completed_at);
+      try {
+        const { data: progList } = await listDocuments<AppwriteDocument>(
+          COLLECTIONS.user_lesson_progress,
+          [
+            Query.equal('user_id', [profile.id]),
+            Query.equal('day', [String(dayNum)]),
+            Query.limit(1),
+          ]
+        );
+        const prog = progList[0];
+        if (prog?.completed_at) setCompletedAt(prog.completed_at as string);
+      } catch {}
     })();
   }, [dayNum, profile?.id, profile?.org_id]);
 
@@ -49,21 +74,47 @@ export default function LessonScreen() {
     }
     setSaving(true);
     const now = new Date().toISOString();
-    const { error } = await supabase.from('user_lesson_progress').upsert(
-      {
-        user_id: profile.id,
-        org_id: profile.org_id,
-        day: dayNum,
-        unlocked_at: now,
-        completed_at: now,
-      },
-      { onConflict: 'user_id,day' }
-    );
-    setSaving(false);
-    if (error) {
-      Alert.alert('Error', error.message);
+    try {
+      const { data: existing } = await listDocuments<AppwriteDocument>(
+        COLLECTIONS.user_lesson_progress,
+        [
+          Query.equal('user_id', [profile.id]),
+          Query.equal('day', [String(dayNum)]),
+          Query.limit(1),
+        ]
+      );
+      const doc = existing[0];
+      if (doc) {
+        await updateDocument(COLLECTIONS.user_lesson_progress, (doc as AppwriteDocument).$id!, {
+          unlocked_at: now,
+          completed_at: now,
+        });
+      } else {
+        await createDocument(
+          COLLECTIONS.user_lesson_progress,
+          {
+            user_id: profile.id,
+            org_id: profile.org_id,
+            day: String(dayNum),
+            unlocked_at: now,
+            completed_at: now,
+          },
+          ID.unique()
+        );
+      }
+      await awardPoints(
+        profile.org_id,
+        profile.id,
+        'LESSON_COMPLETED',
+        'user_lesson_progress',
+        String(dayNum)
+      );
+    } catch (e) {
+      setSaving(false);
+      Alert.alert('Error', e instanceof Error ? e.message : 'No se pudo guardar.');
       return;
     }
+    setSaving(false);
     if (Platform.OS !== 'web') {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     }
@@ -97,17 +148,36 @@ export default function LessonScreen() {
     );
   }
 
+  const summaryParagraphs = lesson.summary?.split(/\n\n+/) ?? [];
+  const missionParagraphs = lesson.mission?.split(/\n\n+/) ?? [];
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.title}>{lesson.title}</Text>
-      {lesson.summary && <Text style={styles.summary}>{lesson.summary}</Text>}
+      {summaryParagraphs.length > 0 ? (
+        <View style={styles.summaryBlock}>
+          {summaryParagraphs.map((para, i) => (
+            <Text key={i} style={[styles.summary, i < summaryParagraphs.length - 1 && styles.summaryParagraph]}>
+              {para}
+            </Text>
+          ))}
+        </View>
+      ) : null}
       <LessonAudioPlayer audioUrl={lesson.audio_url} />
-      {lesson.mission && (
+      {lesson.mission ? (
         <View style={styles.missionBox}>
           <Text style={styles.missionLabel}>Misión</Text>
-          <Text style={styles.mission}>{lesson.mission}</Text>
+          {missionParagraphs.length > 0 ? (
+            missionParagraphs.map((para, i) => (
+              <Text key={i} style={[styles.mission, i < missionParagraphs.length - 1 && styles.missionParagraph]}>
+                {para}
+              </Text>
+            ))
+          ) : (
+            <Text style={styles.mission}>{lesson.mission}</Text>
+          )}
         </View>
-      )}
+      ) : null}
       {completedAt ? (
         <MotiView
           from={{ opacity: 0, scale: 0.9 }}
@@ -153,10 +223,13 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f8fafc' },
   content: { padding: 24, paddingBottom: 48 },
   title: { fontSize: 22, fontWeight: 'bold', marginBottom: 12, color: '#0f172a' },
-  summary: { color: '#475569', marginBottom: 16, lineHeight: 22 },
+  summaryBlock: { marginBottom: 16 },
+  summary: { color: '#475569', lineHeight: 22 },
+  summaryParagraph: { marginBottom: 14 },
   missionBox: { backgroundColor: '#eff6ff', padding: 16, borderRadius: 12, marginBottom: 24, borderLeftWidth: 4, borderLeftColor: '#2563eb' },
   missionLabel: { fontWeight: 'bold', marginBottom: 8, color: '#1e40af' },
   mission: { color: '#334155' },
+  missionParagraph: { marginBottom: 10 },
   completedCard: {
     marginTop: 8,
     backgroundColor: '#f0fdf4',

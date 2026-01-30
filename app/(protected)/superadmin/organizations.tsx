@@ -3,12 +3,20 @@ import { View, Text, FlatList, TextInput, StyleSheet, Alert, Platform, Pressable
 import { useRouter } from 'expo-router';
 import { Button } from 'tamagui';
 import * as Clipboard from 'expo-clipboard';
-import { supabase } from '@/lib/supabase';
+import {
+  listDocuments,
+  getDocument,
+  createDocument,
+  updateDocument,
+  COLLECTIONS,
+  Query,
+  ID,
+  type AppwriteDocument,
+} from '@/lib/appwrite';
 import { DateField } from '@/components/DateField';
 
 const SUBSCRIPTION_STATUSES = ['trial', 'active', 'past_due', 'canceled'] as const;
 
-/** Genera un código de vinculación de 8 caracteres (sin 0/O, 1/l para evitar confusiones) */
 function generateLinkingCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let code = '';
@@ -52,31 +60,42 @@ export default function SuperadminOrganizationsScreen() {
   const [creating, setCreating] = useState(false);
 
   const loadOrgs = useCallback(async () => {
-    const { data: orgList } = await supabase.from('organizations').select('id, name, slug, linking_code').order('name');
+    const { data: orgList } = await listDocuments<AppwriteDocument>(COLLECTIONS.organizations, [
+      Query.orderAsc('name'),
+      Query.limit(200),
+    ]);
     if (!orgList?.length) {
       setOrgs([]);
       return;
     }
-    const { data: subs } = await supabase
-      .from('org_subscriptions')
-      .select('org_id, status, seats_total, seats_used, period_start, period_end')
-      .in('org_id', orgList.map((o: { id: string }) => o.id));
-    const subMap = new Map(
-      (subs ?? []).map((s: { org_id: string; status: string; seats_total: number; seats_used: number; period_start: string | null; period_end: string | null }) => [
-        s.org_id,
-        {
-          status: s.status,
-          seats_total: s.seats_total,
-          seats_used: s.seats_used,
-          period_start: s.period_start,
-          period_end: s.period_end,
-        },
-      ])
-    );
-    const list: Org[] = orgList.map((o: { id: string; name: string; slug: string; linking_code?: string | null }) => ({
-      ...o,
-      subscription: subMap.get(o.id) ?? null,
-    }));
+    const subMap = new Map<string, { status: string; seats_total: number; seats_used: number; period_start: string | null; period_end: string | null }>();
+    for (const o of orgList) {
+      const doc = o as AppwriteDocument;
+      const orgId = doc.$id ?? (doc as { id?: string }).id;
+      try {
+        const sub = await getDocument<AppwriteDocument>(COLLECTIONS.org_subscriptions, orgId);
+        subMap.set(orgId, {
+          status: (sub.status as string) ?? 'trial',
+          seats_total: (sub.seats_total as number) ?? 10,
+          seats_used: (sub.seats_used as number) ?? 0,
+          period_start: (sub.period_start as string | null) ?? null,
+          period_end: (sub.period_end as string | null) ?? null,
+        });
+      } catch {
+        // no subscription
+      }
+    }
+    const list: Org[] = orgList.map((o) => {
+      const doc = o as AppwriteDocument;
+      const id = doc.$id ?? (doc as { id?: string }).id;
+      return {
+        id,
+        name: (doc.name as string) ?? '',
+        slug: (doc.slug as string) ?? '',
+        linking_code: (doc.linking_code as string | null) ?? null,
+        subscription: subMap.get(id) ?? null,
+      };
+    });
     setOrgs(list);
   }, []);
 
@@ -92,47 +111,38 @@ export default function SuperadminOrganizationsScreen() {
       return;
     }
     setCreating(true);
-    const { data: org, error: orgError } = await supabase
-      .from('organizations')
-      .insert({ name, slug })
-      .select('id')
-      .single();
-    if (orgError) {
-      setCreating(false);
-      Alert.alert('Error', 'No se pudo crear la empresa: ' + orgError.message);
-      return;
-    }
-    const payload = {
-      org_id: org.id,
-      status: newStatus,
-      seats_total: newSeatsTotal ? parseInt(newSeatsTotal, 10) : 10,
-      seats_used: 0,
-      period_start: newPeriodStart || null,
-      period_end: newPeriodEnd || null,
-    };
-    const { error: subError } = await supabase.from('org_subscriptions').insert(payload);
-    if (subError) {
-      setCreating(false);
-      Alert.alert('Error', 'Empresa creada pero falló la suscripción: ' + subError.message);
-      await loadOrgs();
-      return;
-    }
-    const linkingCode = generateLinkingCode();
-    const { error: updateError } = await supabase
-      .from('organizations')
-      .update({ linking_code: linkingCode })
-      .eq('id', org.id);
-    setCreating(false);
-    if (updateError) {
-      Alert.alert('Aviso', 'Empresa creada pero no se pudo generar el código de vinculación: ' + updateError.message);
-    } else {
+    try {
+      const orgId = ID.unique();
+      const now = new Date().toISOString();
+      await createDocument(
+        COLLECTIONS.organizations,
+        { name, slug, created_at: now },
+        orgId
+      );
+      await createDocument(
+        COLLECTIONS.org_subscriptions,
+        {
+          status: newStatus,
+          seats_total: newSeatsTotal ? parseInt(newSeatsTotal, 10) : 10,
+          seats_used: 0,
+          period_start: newPeriodStart || null,
+          period_end: newPeriodEnd || null,
+          updated_at: now,
+        },
+        orgId
+      );
+      const linkingCode = generateLinkingCode();
+      await updateDocument(COLLECTIONS.organizations, orgId, { linking_code: linkingCode });
       Clipboard.setStringAsync(linkingCode).catch(() => {});
       Alert.alert(
         'Empresa creada',
         `Código de vinculación: ${linkingCode}\n\nComparte este código con los empleados para que se registren y se vinculen a la empresa. El código se ha copiado al portapapeles.`,
         [{ text: 'Entendido' }]
       );
+    } catch (e) {
+      Alert.alert('Error', e instanceof Error ? e.message : 'No se pudo crear la empresa');
     }
+    setCreating(false);
     setShowCreateForm(false);
     setNewName('');
     setNewSlug('');
@@ -145,36 +155,37 @@ export default function SuperadminOrganizationsScreen() {
 
   async function saveSubscription(orgId: string) {
     setSaving(true);
-    const payload: {
-      status: string;
-      seats_total?: number;
-      period_start?: string | null;
-      period_end?: string | null;
-      updated_at: string;
-    } = {
-      status,
-      updated_at: new Date().toISOString(),
-    };
-    if (seatsTotal !== '') payload.seats_total = parseInt(seatsTotal, 10);
-    if (periodStart !== '') payload.period_start = periodStart || null;
-    if (periodEnd !== '') payload.period_end = periodEnd || null;
-    const { error } = await supabase.from('org_subscriptions').update(payload).eq('org_id', orgId);
-    setSaving(false);
-    if (error) {
-      Alert.alert('Error', error.message);
-      return;
+    try {
+      const payload: Record<string, unknown> = {
+        status,
+        updated_at: new Date().toISOString(),
+      };
+      if (seatsTotal !== '') payload.seats_total = parseInt(seatsTotal, 10);
+      if (periodStart !== '') payload.period_start = periodStart || null;
+      if (periodEnd !== '') payload.period_end = periodEnd || null;
+      await updateDocument(COLLECTIONS.org_subscriptions, orgId, payload);
+      const sub = await getDocument<AppwriteDocument>(COLLECTIONS.org_subscriptions, orgId);
+      setOrgs((prev) =>
+        prev.map((o) =>
+          o.id === orgId
+            ? {
+                ...o,
+                subscription: {
+                  status: (sub.status as string) ?? 'trial',
+                  seats_total: (sub.seats_total as number) ?? 10,
+                  seats_used: (sub.seats_used as number) ?? 0,
+                  period_start: (sub.period_start as string | null) ?? null,
+                  period_end: (sub.period_end as string | null) ?? null,
+                },
+              }
+            : o
+        )
+      );
+    } catch (e) {
+      Alert.alert('Error', e instanceof Error ? e.message : 'No se pudo guardar');
     }
+    setSaving(false);
     setEditing(null);
-    const { data: sub } = await supabase
-      .from('org_subscriptions')
-      .select('status, seats_total, seats_used, period_start, period_end')
-      .eq('org_id', orgId)
-      .single();
-    setOrgs((prev) =>
-      prev.map((o) =>
-        o.id === orgId ? { ...o, subscription: sub ?? o.subscription } : o
-      )
-    );
   }
 
   function startEdit(org: Org) {

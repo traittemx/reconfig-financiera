@@ -2,7 +2,18 @@ import { useEffect, useState } from 'react';
 import { View, Text, TextInput, StyleSheet, Alert, Platform } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Button } from 'tamagui';
-import { supabase } from '@/lib/supabase';
+import {
+  account,
+  listDocuments,
+  getDocument,
+  createDocument,
+  updateDocument,
+  COLLECTIONS,
+  Query,
+  ID,
+  docToRow,
+  type AppwriteDocument,
+} from '@/lib/appwrite';
 import { useAuth } from '@/contexts/auth-context';
 
 export default function InviteAcceptScreen() {
@@ -29,30 +40,35 @@ export default function InviteAcceptScreen() {
       return;
     }
     (async () => {
-      const { data: inv, error: invErr } = await supabase
-        .from('org_invites')
-        .select('id, org_id, email, role, expires_at, accepted_at')
-        .eq('token', token)
-        .single();
-      if (invErr || !inv) {
+      try {
+        const { data: docs } = await listDocuments<AppwriteDocument>(
+          COLLECTIONS.org_invites,
+          [Query.equal('token', [token])]
+        );
+        const doc = docs[0];
+        if (!doc) {
+          setError('Invitación no encontrada o expirada');
+          return;
+        }
+        const inv = docToRow(doc) as unknown as { id: string; org_id: string; email: string; role: string; expires_at: string; accepted_at: string | null };
+        inv.id = (doc as AppwriteDocument).$id ?? inv.id;
+        if (inv.accepted_at) {
+          setError('Esta invitación ya fue aceptada');
+          return;
+        }
+        if (new Date(inv.expires_at) < new Date()) {
+          setError('Esta invitación ha expirado');
+          return;
+        }
+        setInvite(inv);
+        const subDoc = await getDocument<AppwriteDocument>(COLLECTIONS.org_subscriptions, inv.org_id);
+        setSubscription({
+          seats_used: (subDoc.seats_used as number) ?? 0,
+          seats_total: (subDoc.seats_total as number) ?? 0,
+        });
+      } catch {
         setError('Invitación no encontrada o expirada');
-        return;
       }
-      if (inv.accepted_at) {
-        setError('Esta invitación ya fue aceptada');
-        return;
-      }
-      if (new Date(inv.expires_at) < new Date()) {
-        setError('Esta invitación ha expirado');
-        return;
-      }
-      setInvite(inv);
-      const { data: sub } = await supabase
-        .from('org_subscriptions')
-        .select('seats_used, seats_total')
-        .eq('org_id', inv.org_id)
-        .single();
-      setSubscription(sub ?? null);
     })();
   }, [token]);
 
@@ -66,83 +82,78 @@ export default function InviteAcceptScreen() {
       return;
     }
     setLoading(true);
-    const { data: authData, error: authError } = await supabase.auth.signUp({
-      email: invite.email,
-      password,
-      options: { data: { full_name: fullName.trim() } },
-    });
-    if (authError) {
-      if (authError.message.includes('already registered')) {
-        const { error: signInErr } = await supabase.auth.signInWithPassword({
-          email: invite.email,
-          password,
-        });
-        if (signInErr) {
+    try {
+      let userId: string;
+      try {
+        userId = ID.unique();
+        await account.create(userId, invite.email, password, fullName.trim());
+        await account.createEmailPasswordSession(invite.email, password);
+      } catch (authError) {
+        const msg = authError instanceof Error ? authError.message : String(authError);
+        if (msg.includes('already') || msg.includes('registered') || msg.includes('exists')) {
+          await account.createEmailPasswordSession(invite.email, password);
+          const user = await account.get();
+          if (!user?.$id) {
+            setLoading(false);
+            Alert.alert('Error', 'Ya existe una cuenta con este email. Usa "Iniciar sesión".');
+            return;
+          }
+          userId = user.$id;
+        } else {
           setLoading(false);
-          Alert.alert('Error', 'Ya existe una cuenta con este email. Usa "Iniciar sesión".');
+          Alert.alert('Error', msg);
           return;
         }
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
-          setLoading(false);
-          return;
-        }
-        await supabase.from('org_members').insert({
+      }
+      const now = new Date().toISOString();
+      const memberId = `${invite.org_id}_${userId}`;
+      await createDocument(
+        COLLECTIONS.org_members,
+        {
           org_id: invite.org_id,
-          user_id: user.id,
+          user_id: userId,
           role_in_org: invite.role,
           status: 'active',
+          created_at: now,
+        },
+        memberId
+      );
+      try {
+        await updateDocument(COLLECTIONS.profiles, userId, {
+          full_name: fullName.trim(),
+          org_id: invite.org_id,
+          role: invite.role,
+          start_date: new Date().toISOString().slice(0, 10),
+          updated_at: now,
         });
-        await supabase
-          .from('profiles')
-          .update({
+      } catch {
+        await createDocument(
+          COLLECTIONS.profiles,
+          {
             full_name: fullName.trim(),
             org_id: invite.org_id,
             role: invite.role,
             start_date: new Date().toISOString().slice(0, 10),
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', user.id);
-        await supabase
-          .from('org_invites')
-          .update({ accepted_at: new Date().toISOString() })
-          .eq('id', invite.id);
-        await refresh();
-        setLoading(false);
-        router.replace('/(protected)/hoy');
-        return;
+            created_at: now,
+            updated_at: now,
+          },
+          userId
+        );
       }
+      await updateDocument(COLLECTIONS.org_invites, invite.id, { accepted_at: now });
+      const subDoc = await getDocument<AppwriteDocument>(COLLECTIONS.org_subscriptions, invite.org_id);
+      const used = ((subDoc.seats_used as number) ?? 0) + 1;
+      await updateDocument(COLLECTIONS.org_subscriptions, invite.org_id, {
+        seats_used: used,
+        updated_at: now,
+      });
+      await refresh();
+      router.replace('/(protected)/hoy');
+    } catch (e) {
+      Alert.alert('Error', e instanceof Error ? e.message : 'No se pudo aceptar la invitación.');
+    } finally {
       setLoading(false);
-      Alert.alert('Error', authError.message);
-      return;
     }
-    if (!authData.user) {
-      setLoading(false);
-      return;
-    }
-    await supabase.from('org_members').insert({
-      org_id: invite.org_id,
-      user_id: authData.user.id,
-      role_in_org: invite.role,
-      status: 'active',
-    });
-    await supabase
-      .from('profiles')
-      .update({
-        full_name: fullName.trim(),
-        org_id: invite.org_id,
-        role: invite.role,
-        start_date: new Date().toISOString().slice(0, 10),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', authData.user.id);
-    await supabase
-      .from('org_invites')
-      .update({ accepted_at: new Date().toISOString() })
-      .eq('id', invite.id);
-    await refresh();
-    setLoading(false);
-    router.replace('/(protected)/hoy');
   }
 
   if (error) {

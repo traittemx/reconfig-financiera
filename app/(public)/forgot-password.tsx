@@ -3,7 +3,8 @@ import { View, Text, StyleSheet, Alert, Platform, Pressable, ActivityIndicator }
 import { Link } from 'expo-router';
 import { Button } from 'tamagui';
 import { Mail } from '@tamagui/lucide-icons';
-import { supabase } from '@/lib/supabase';
+import * as Linking from 'expo-linking';
+import { account } from '@/lib/appwrite';
 import { AuthIllustration } from '@/components/auth-illustration';
 import { AuthInput } from '@/components/auth-input';
 
@@ -17,18 +18,18 @@ export default function ForgotPasswordScreen() {
       return;
     }
     setLoading(true);
-    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-      redirectTo: undefined,
-    });
-    setLoading(false);
-    if (error) {
-      Alert.alert('Error', error.message);
-      return;
+    try {
+      const url = Linking.createURL('/(public)/auth');
+      await account.createRecovery(email.trim(), url);
+      Alert.alert(
+        'Revisa tu correo',
+        'Te hemos enviado un enlace para restablecer tu contraseña. Revisa la bandeja de entrada y la carpeta de spam.'
+      );
+    } catch (e) {
+      Alert.alert('Error', e instanceof Error ? e.message : 'No se pudo enviar el enlace.');
+    } finally {
+      setLoading(false);
     }
-    Alert.alert(
-      'Revisa tu correo',
-      'Te hemos enviado un enlace para restablecer tu contraseña. Revisa la bandeja de entrada y la carpeta de spam.'
-    );
   }
 
   return (

@@ -8,7 +8,15 @@ import {
   isWeekend,
   differenceInMonths,
 } from 'date-fns';
-import { supabase } from '@/lib/supabase';
+import {
+  listDocuments,
+  createDocument,
+  updateDocument,
+  COLLECTIONS,
+  Query,
+  ID,
+  type AppwriteDocument,
+} from '@/lib/appwrite';
 import { awardPoints } from '@/lib/points';
 import type { PilotDayState, PilotRecommendation, PilotSignalsSnapshot } from '@/types/pilot';
 
@@ -108,22 +116,22 @@ function getFlexibility(state: PilotDayState): 'bajo' | 'medio' | 'alto' {
 
 export async function getDailyRecommendation(
   userId: string,
-  orgId: string,
+  _orgId: string,
   date: Date
 ): Promise<PilotRecommendation | null> {
   const dateStr = format(date, 'yyyy-MM-dd');
-  const { data, error } = await supabase
-    .from('pilot_daily_recommendations')
-    .select('*')
-    .eq('user_id', userId)
-    .eq('recommendation_date', dateStr)
-    .maybeSingle();
-
-  if (error) {
-    console.warn('[pilot] getDailyRecommendation error', error);
+  try {
+    const { data } = await listDocuments<AppwriteDocument>(COLLECTIONS.pilot_daily_recommendations, [
+      Query.equal('user_id', [userId]),
+      Query.equal('recommendation_date', [dateStr]),
+      Query.limit(1),
+    ]);
+    const doc = data[0];
+    if (!doc) return null;
+    return doc as unknown as PilotRecommendation;
+  } catch {
     return null;
   }
-  return data as PilotRecommendation | null;
 }
 
 async function loadMonthTransactions(
@@ -133,89 +141,99 @@ async function loadMonthTransactions(
 ): Promise<{ income: number; expense: number; rows: { kind: string; amount: number; occurred_at: string }[] }> {
   const startIso = monthStart.toISOString();
   const endIso = monthEnd.toISOString();
-  const { data, error } = await supabase
-    .from('transactions')
-    .select('kind, amount, occurred_at, is_recurring')
-    .eq('user_id', userId)
-    .gte('occurred_at', startIso)
-    .lte('occurred_at', endIso);
-
-  if (error) {
-    console.warn('[pilot] loadMonthTransactions error', error);
+  try {
+    const { data } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
+      Query.equal('user_id', [userId]),
+      Query.greaterThanEqual('occurred_at', startIso),
+      Query.lessThanEqual('occurred_at', endIso),
+      Query.limit(500),
+    ]);
+    const rows = (data ?? []).filter((r) => !(r as AppwriteDocument).is_recurring);
+    let income = 0;
+    let expense = 0;
+    rows.forEach((r) => {
+      const doc = r as AppwriteDocument;
+      const amt = Number(doc.amount);
+      if (doc.kind === 'INCOME') income += amt;
+      else if (doc.kind === 'EXPENSE') expense += amt;
+    });
+    return {
+      income,
+      expense,
+      rows: rows.map((r) => ({
+        kind: (r as AppwriteDocument).kind as string,
+        amount: Number((r as AppwriteDocument).amount),
+        occurred_at: (r as AppwriteDocument).occurred_at as string,
+      })),
+    };
+  } catch {
     return { income: 0, expense: 0, rows: [] };
   }
-
-  const rows = (data ?? []).filter((r: { is_recurring?: boolean }) => !r.is_recurring);
-  let income = 0;
-  let expense = 0;
-  rows.forEach((r: { kind: string; amount: number }) => {
-    const amt = Number(r.amount);
-    if (r.kind === 'INCOME') income += amt;
-    else if (r.kind === 'EXPENSE') expense += amt;
-  });
-  return { income, expense, rows };
 }
 
 async function loadBalance(userId: string): Promise<number> {
-  const { data: accounts } = await supabase
-    .from('accounts')
-    .select('id, opening_balance, type')
-    .eq('user_id', userId);
-
+  const { data: accounts } = await listDocuments<AppwriteDocument>(COLLECTIONS.accounts, [
+    Query.equal('user_id', [userId]),
+    Query.limit(200),
+  ]);
   let balance = 0;
-  (accounts ?? []).forEach((a: { opening_balance: number; type?: string }) => {
-    const bal = Number(a.opening_balance);
-    balance += (a.type === 'CREDIT' || a.type === 'CREDIT_CARD') ? -bal : bal;
+  (accounts ?? []).forEach((a) => {
+    const doc = a as AppwriteDocument;
+    const bal = Number(doc.opening_balance);
+    balance += (doc.type === 'CREDIT' || doc.type === 'CREDIT_CARD') ? -bal : bal;
   });
-
-  const { data: allTx } = await supabase
-    .from('transactions')
-    .select('kind, amount')
-    .eq('user_id', userId);
-
-  (allTx ?? []).forEach((t: { kind: string; amount: number }) => {
-    const amt = Number(t.amount);
-    if (t.kind === 'INCOME') balance += amt;
-    else if (t.kind === 'EXPENSE') balance -= amt;
+  const { data: allTx } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
+    Query.equal('user_id', [userId]),
+    Query.limit(2000),
+  ]);
+  (allTx ?? []).forEach((t) => {
+    const doc = t as AppwriteDocument;
+    const amt = Number(doc.amount);
+    if (doc.kind === 'INCOME') balance += amt;
+    else if (doc.kind === 'EXPENSE') balance -= amt;
   });
   return balance;
 }
 
 async function loadRecurringMonthlyTotal(userId: string): Promise<number> {
-  const { data } = await supabase
-    .from('transactions')
-    .select('amount, kind, occurred_at, recurrence_interval_months, recurrence_total_occurrences')
-    .eq('user_id', userId)
-    .eq('is_recurring', true);
-
+  const { data } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
+    Query.equal('user_id', [userId]),
+    Query.equal('is_recurring', [true]),
+    Query.limit(200),
+  ]);
   const now = new Date();
   const currentMonthStart = startOfMonth(now);
   let total = 0;
-  (data ?? []).forEach((r: { amount: number; kind: string; occurred_at: string; recurrence_interval_months?: number | null; recurrence_total_occurrences?: number | null }) => {
-    if (r.kind !== 'EXPENSE') return;
-    if (r.recurrence_total_occurrences != null) {
-      const start = startOfMonth(new Date(r.occurred_at));
+  (data ?? []).forEach((r) => {
+    const doc = r as AppwriteDocument;
+    if (doc.kind !== 'EXPENSE') return;
+    const totalOcc = doc.recurrence_total_occurrences as number | null | undefined;
+    if (totalOcc != null) {
+      const start = startOfMonth(new Date(doc.occurred_at as string));
       const occurrenceIndex = differenceInMonths(currentMonthStart, start) + 1;
-      if (occurrenceIndex > r.recurrence_total_occurrences) return;
+      if (occurrenceIndex > totalOcc) return;
     }
-    const interval = r.recurrence_interval_months ?? 1;
-    total += Math.round((Number(r.amount) / interval) * 100) / 100;
+    const interval = (doc.recurrence_interval_months as number) ?? 1;
+    total += Math.round((Number(doc.amount) / interval) * 100) / 100;
   });
   return total;
 }
 
 async function debtDueWithinDays(userId: string, fromDate: Date, days: number): Promise<boolean> {
-  const { data: accounts } = await supabase
-    .from('accounts')
-    .select('payment_day, type')
-    .eq('user_id', userId)
-    .in('type', ['CREDIT', 'CREDIT_CARD']);
-
-  if (!accounts?.length) return false;
+  const { data: accounts } = await listDocuments<AppwriteDocument>(COLLECTIONS.accounts, [
+    Query.equal('user_id', [userId]),
+    Query.limit(200),
+  ]);
+  const creditAccounts = (accounts ?? []).filter(
+    (a) => (a as AppwriteDocument).type === 'CREDIT' || (a as AppwriteDocument).type === 'CREDIT_CARD'
+  );
+  if (!creditAccounts.length) return false;
   const from = new Date(fromDate.getFullYear(), fromDate.getMonth(), fromDate.getDate());
-  for (const a of accounts as { payment_day: number | null }[]) {
-    if (a.payment_day == null) continue;
-    const day = Math.min(a.payment_day, 28);
+  for (const a of creditAccounts) {
+    const doc = a as AppwriteDocument;
+    const paymentDay = doc.payment_day as number | null | undefined;
+    if (paymentDay == null) continue;
+    const day = Math.min(paymentDay, 28);
     let payDate = new Date(from.getFullYear(), from.getMonth(), day);
     if (payDate < from) payDate = new Date(from.getFullYear(), from.getMonth() + 1, day);
     const diff = (payDate.getTime() - from.getTime()) / (1000 * 60 * 60 * 24);
@@ -230,23 +248,21 @@ async function averageExpenseByWeekday(
   daysBack: number
 ): Promise<Record<number, number>> {
   const start = subDays(fromDate, daysBack);
-  const { data } = await supabase
-    .from('transactions')
-    .select('amount, occurred_at, kind, is_recurring')
-    .eq('user_id', userId)
-    .eq('kind', 'EXPENSE')
-    .gte('occurred_at', start.toISOString());
-
+  const { data } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
+    Query.equal('user_id', [userId]),
+    Query.equal('kind', ['EXPENSE']),
+    Query.greaterThanEqual('occurred_at', start.toISOString()),
+    Query.limit(500),
+  ]);
   const byWeekday: Record<number, { sum: number; count: number }> = {};
   for (let d = 0; d <= 6; d++) byWeekday[d] = { sum: 0, count: 0 };
-
-  (data ?? []).forEach((r: { amount: number; occurred_at: string; is_recurring?: boolean }) => {
-    if (r.is_recurring) return;
-    const day = getDay(new Date(r.occurred_at));
-    byWeekday[day].sum += Number(r.amount);
+  (data ?? []).forEach((r) => {
+    const doc = r as AppwriteDocument;
+    if (doc.is_recurring) return;
+    const day = getDay(new Date(doc.occurred_at as string));
+    byWeekday[day].sum += Number(doc.amount);
     byWeekday[day].count += 1;
   });
-
   const avgByWeekday: Record<number, number> = {};
   for (let d = 0; d <= 6; d++) {
     avgByWeekday[d] = byWeekday[d].count > 0 ? byWeekday[d].sum / byWeekday[d].count : 0;
@@ -256,41 +272,40 @@ async function averageExpenseByWeekday(
 
 async function getEmotionalCheckin(userId: string, date: Date): Promise<string | null> {
   const dateStr = format(date, 'yyyy-MM-dd');
-  const { data } = await supabase
-    .from('pilot_emotional_checkins')
-    .select('value')
-    .eq('user_id', userId)
-    .eq('checkin_date', dateStr)
-    .maybeSingle();
-  return (data as { value: string } | null)?.value ?? null;
+  const { data } = await listDocuments<AppwriteDocument>(COLLECTIONS.pilot_emotional_checkins, [
+    Query.equal('user_id', [userId]),
+    Query.equal('checkin_date', [dateStr]),
+    Query.limit(1),
+  ]);
+  const doc = data[0];
+  return (doc as AppwriteDocument)?.value as string | null ?? null;
 }
 
 async function getYesterdayRecommendation(userId: string, today: Date): Promise<{ state: PilotDayState; suggested_limit: string } | null> {
   const yesterday = subDays(today, 1);
   const dateStr = format(yesterday, 'yyyy-MM-dd');
-  const { data } = await supabase
-    .from('pilot_daily_recommendations')
-    .select('state, suggested_limit')
-    .eq('user_id', userId)
-    .eq('recommendation_date', dateStr)
-    .maybeSingle();
-  return data as { state: PilotDayState; suggested_limit: string } | null;
+  const { data } = await listDocuments<AppwriteDocument>(COLLECTIONS.pilot_daily_recommendations, [
+    Query.equal('user_id', [userId]),
+    Query.equal('recommendation_date', [dateStr]),
+    Query.limit(1),
+  ]);
+  const doc = data[0];
+  return doc ? { state: (doc as AppwriteDocument).state as PilotDayState, suggested_limit: (doc as AppwriteDocument).suggested_limit as string } : null;
 }
 
 async function getYesterdayExpense(userId: string, yesterday: Date): Promise<number> {
   const start = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate(), 0, 0, 0);
   const end = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate(), 23, 59, 59);
-  const { data } = await supabase
-    .from('transactions')
-    .select('amount, kind, is_recurring')
-    .eq('user_id', userId)
-    .eq('kind', 'EXPENSE')
-    .gte('occurred_at', start.toISOString())
-    .lte('occurred_at', end.toISOString());
-
+  const { data } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
+    Query.equal('user_id', [userId]),
+    Query.equal('kind', ['EXPENSE']),
+    Query.greaterThanEqual('occurred_at', start.toISOString()),
+    Query.lessThanEqual('occurred_at', end.toISOString()),
+    Query.limit(100),
+  ]);
   let sum = 0;
-  (data ?? []).filter((r: { is_recurring?: boolean }) => !r.is_recurring).forEach((r: { amount: number }) => {
-    sum += Number(r.amount);
+  (data ?? []).filter((r) => !(r as AppwriteDocument).is_recurring).forEach((r) => {
+    sum += Number((r as AppwriteDocument).amount);
   });
   return sum;
 }
@@ -430,25 +445,28 @@ export async function getOrCreateDailyRecommendation(
   };
 
   const dateStr = format(date, 'yyyy-MM-dd');
-  const { data: inserted, error } = await supabase
-    .from('pilot_daily_recommendations')
-    .insert({
-      user_id: userId,
-      org_id: orgId,
-      recommendation_date: dateStr,
-      state,
-      message_main,
-      message_why,
-      suggested_limit,
-      suggested_action,
-      flexibility,
-      signals_snapshot: signals_snapshot as unknown as Record<string, unknown>,
-    })
-    .select()
-    .single();
-
-  if (error) {
-    console.warn('[pilot] insert recommendation error', error);
+  let inserted: AppwriteDocument;
+  try {
+    const doc = await createDocument(
+      COLLECTIONS.pilot_daily_recommendations,
+      {
+        user_id: userId,
+        org_id: orgId,
+        recommendation_date: dateStr,
+        state,
+        message_main,
+        message_why,
+        suggested_limit,
+        suggested_action,
+        flexibility,
+        signals_snapshot: JSON.stringify(signals_snapshot),
+        created_at: new Date().toISOString(),
+      },
+      ID.unique()
+    );
+    inserted = doc as AppwriteDocument;
+  } catch (e) {
+    console.warn('[pilot] insert recommendation error', e);
     return null;
   }
 
@@ -460,7 +478,7 @@ export async function getOrCreateDailyRecommendation(
     awardPoints(orgId, userId, 'RESCUE', 'pilot_rescue', yesterdayStr);
   }
 
-  return inserted as PilotRecommendation;
+  return inserted as unknown as PilotRecommendation;
 }
 
 export async function saveEmotionalCheckin(
@@ -469,15 +487,26 @@ export async function saveEmotionalCheckin(
   value: string
 ): Promise<boolean> {
   const dateStr = format(date, 'yyyy-MM-dd');
-  const { error } = await supabase
-    .from('pilot_emotional_checkins')
-    .upsert(
-      { user_id: userId, checkin_date: dateStr, value: value.trim().slice(0, 100) },
-      { onConflict: 'user_id,checkin_date' }
-    );
-  if (error) {
-    console.warn('[pilot] saveEmotionalCheckin error', error);
+  try {
+    const { data: existing } = await listDocuments<AppwriteDocument>(COLLECTIONS.pilot_emotional_checkins, [
+      Query.equal('user_id', [userId]),
+      Query.equal('checkin_date', [dateStr]),
+      Query.limit(1),
+    ]);
+    const doc = existing[0];
+    const payload = { value: value.trim().slice(0, 100) };
+    if (doc) {
+      await updateDocument(COLLECTIONS.pilot_emotional_checkins, (doc as AppwriteDocument).$id!, payload);
+    } else {
+      await createDocument(
+        COLLECTIONS.pilot_emotional_checkins,
+        { user_id: userId, checkin_date: dateStr, ...payload },
+        ID.unique()
+      );
+    }
+    return true;
+  } catch (e) {
+    console.warn('[pilot] saveEmotionalCheckin error', e);
     return false;
   }
-  return true;
 }

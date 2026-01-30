@@ -10,12 +10,12 @@ App B2B: finanzas personales + curso de 23 días desbloqueable, vendida a empres
 - **NativeWind** (Tailwind para React Native) + **Tamagui** (componentes UI)
 - **Reanimated** + **Moti** (animaciones)
 - **PWA** para web (manifest + configuración Expo Web)
-- **Supabase** (Auth + Postgres + RLS)
+- **Appwrite** (Auth + Databases + Storage + Functions)
 
 ## Requisitos
 
 - Node.js 18+
-- Cuenta [Supabase](https://supabase.com)
+- Cuenta [Appwrite](https://appwrite.io) (cloud o self-hosted)
 - Expo CLI (`npx expo`)
 
 ## Variables de entorno
@@ -23,11 +23,19 @@ App B2B: finanzas personales + curso de 23 días desbloqueable, vendida a empres
 Crea un archivo `.env` en la raíz (o configura en tu entorno):
 
 ```bash
-EXPO_PUBLIC_SUPABASE_URL=https://tu-proyecto.supabase.co
-EXPO_PUBLIC_SUPABASE_ANON_KEY=tu-anon-key
+EXPO_PUBLIC_APPWRITE_ENDPOINT=https://cloud.appwrite.io/v1
+EXPO_PUBLIC_APPWRITE_PROJECT_ID=tu-project-id
 ```
 
 En Expo, las variables deben tener el prefijo `EXPO_PUBLIC_` para estar disponibles en el cliente.
+
+Para el script de seed demo (opcional) necesitas también una API key con permisos de escritura:
+
+```bash
+APPWRITE_API_KEY=tu-api-key
+```
+
+(Nunca expongas la API key en el cliente; úsala solo en scripts o en el servidor.)
 
 ## Instalación
 
@@ -51,15 +59,17 @@ npm run ios
 npm run android
 ```
 
-## Supabase: migraciones y seed
+## Appwrite: configuración y datos
 
-1. Crea un proyecto en Supabase.
-2. En el **SQL Editor**, ejecuta en este orden:
-   - Contenido de `supabase/migrations/001_initial.sql` (esquema, RLS, triggers, función `award_points`).
-   - Contenido de `supabase/migrations/002_add_account_type_credit.sql` (si existe).
-   - Contenido de `supabase/migrations/003_super_admin_lessons.sql` (permisos super admin en lessons y función `set_first_super_admin`).
-   - Contenido de `supabase/seed.sql` (lecciones 1..23, `points_rules`, RPC `seed_default_categories`).
-3. En **Authentication > Providers** asegura que **Email** está habilitado (email + password).
+1. Crea un proyecto en [Appwrite Console](https://cloud.appwrite.io) (o tu instancia).
+2. Crea una base de datos (por defecto el código usa ID `finaria`) y las colecciones según `docs/appwrite-schema.md`. 
+   - **Opción automática**: ejecuta `npm run appwrite:create-collections` (requiere API key en `.env` o env del sistema — ver `docs/appwrite-schema.md`).
+   - **Opción MCP** (con el agente de Cursor): configura el MCP de Appwrite siguiendo `docs/appwrite-mcp-setup.md` y pide al agente que ejecute las migraciones.
+3. **Auth**: habilita **Email/Password** en Authentication → Settings (ver `docs/appwrite-auth-setup.md`).
+4. Crea un bucket de Storage (ID `lesson-audio`) para los audios de lecciones, o ejecuta `npm run appwrite:create-bucket`.
+5. Despliega las Appwrite Functions (`validate_linking_code`, `join_org_with_code`, `seed_default_categories`, `award_points`) desde `appwrite-functions/` — ver `appwrite-functions/README.md`.
+6. **points_rules**: ejecuta `npm run appwrite:seed-points-rules` para crear las reglas de puntos (CREATE_EXPENSE, LESSON_COMPLETED, etc.) que usan las Functions.
+7. Opcional: ejecuta `npm run seed:demo` (con `APPWRITE_ENDPOINT`, `APPWRITE_PROJECT_ID`, `APPWRITE_API_KEY` en `.env`) para crear usuario y empresa demo.
 
 ## Scripts
 
@@ -70,6 +80,7 @@ npm run android
 | `npm run web:build` | Export estático para web (`expo export --platform web`) |
 | `npm run deploy:web` | Export + deploy preview en EAS Hosting |
 | `npm run deploy:web:prod` | Export + deploy producción en EAS Hosting |
+| `npm run seed:demo` | Crea usuario y empresa demo (Appwrite; requiere API key) |
 | `npm run ios` | iOS simulator                  |
 | `npm run android` | Android emulator            |
 | `npm run lint` | Lint con Expo                 |
@@ -93,7 +104,7 @@ La forma más directa de publicar la web es usar **EAS Hosting** de Expo: el pro
    ```
    O manualmente: `npx expo export --platform web` y luego `npx eas-cli@latest deploy` (o `npx eas-cli@latest deploy --prod`).
 
-Las variables `EXPO_PUBLIC_SUPABASE_URL` y `EXPO_PUBLIC_SUPABASE_ANON_KEY` deben estar en tu `.env` local cuando hagas el export; EAS Hosting sirve el build estático (las env se “hornean” en el build). Para distintos entornos puedes usar [EAS Secrets](https://docs.expo.dev/eas/build-reference/variables/) en workflows.
+Las variables `EXPO_PUBLIC_APPWRITE_ENDPOINT` y `EXPO_PUBLIC_APPWRITE_PROJECT_ID` deben estar en tu `.env` local cuando hagas el export; EAS Hosting sirve el build estático (las env se “hornean” en el build). Para distintos entornos puedes usar [EAS Secrets](https://docs.expo.dev/eas/build-reference/variables/) en workflows.
 
 ## Deploy en Vercel (web)
 
@@ -102,7 +113,7 @@ Las variables `EXPO_PUBLIC_SUPABASE_URL` y `EXPO_PUBLIC_SUPABASE_ANON_KEY` deben
 3. **Build command:** `npm run web:build` (o `npx expo export --platform web`). El `vercel.json` del proyecto ya lo define.
 4. **Output directory:** `dist`.
 5. **Framework Preset:** Other (no Next.js ni otro).
-6. **Environment variables:** añade `EXPO_PUBLIC_SUPABASE_URL` y `EXPO_PUBLIC_SUPABASE_ANON_KEY`.
+6. **Environment variables:** añade `EXPO_PUBLIC_APPWRITE_ENDPOINT` y `EXPO_PUBLIC_APPWRITE_PROJECT_ID`.
 
 ## Estructura de la app (Expo Router)
 
@@ -121,10 +132,8 @@ Las variables `EXPO_PUBLIC_SUPABASE_URL` y `EXPO_PUBLIC_SUPABASE_ANON_KEY` deben
 ## Crear el primer Super Admin
 
 1. Regístrate en la app con el email que quieras usar como super admin.
-2. En Supabase SQL Editor, ejecuta (sustituye el email):  
-   `UPDATE profiles SET role = 'SUPER_ADMIN' WHERE id = (SELECT id FROM auth.users WHERE email = 'tu-email@ejemplo.com');`  
-   O usa el script `scripts/set-super-admin.sql` o la función `set_first_super_admin('email')` si aplicaste la migración 003.  
-   Ver [docs/SUPER_ADMIN_SETUP.md](docs/SUPER_ADMIN_SETUP.md) para más opciones.
+2. En Appwrite Console → Databases → colección `profiles`, localiza el documento cuyo ID es el User ID del usuario recién creado (o coincide con el usuario en Auth) y edita el atributo `role` a `SUPER_ADMIN`.
+   Ver [docs/SUPER_ADMIN_SETUP.md](docs/SUPER_ADMIN_SETUP.md) si existe para más opciones.
 
 ## PWA
 

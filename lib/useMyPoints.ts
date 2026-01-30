@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
+import { listDocuments, COLLECTIONS, Query } from '@/lib/appwrite';
 
 export function useMyPoints(orgId: string | undefined, userId: string | undefined) {
   const [totalPoints, setTotalPoints] = useState(0);
@@ -12,13 +12,17 @@ export function useMyPoints(orgId: string | undefined, userId: string | undefine
       return;
     }
     setLoading(true);
-    const { data } = await supabase
-      .from('points_totals')
-      .select('total_points')
-      .eq('org_id', orgId)
-      .eq('user_id', userId)
-      .maybeSingle();
-    setTotalPoints(data?.total_points ?? 0);
+    try {
+      const { data } = await listDocuments(COLLECTIONS.points_totals, [
+        Query.equal('org_id', [orgId]),
+        Query.equal('user_id', [userId]),
+        Query.limit(1),
+      ]);
+      const doc = data[0];
+      setTotalPoints((doc as { total_points?: number })?.total_points ?? 0);
+    } catch {
+      setTotalPoints(0);
+    }
     setLoading(false);
   }, [orgId, userId]);
 

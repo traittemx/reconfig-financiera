@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import { Lock, CirclePlay, CheckCircle2 } from '@tamagui/lucide-icons';
 import { useAuth } from '@/contexts/auth-context';
 import { getDayUnlocked } from '@/lib/business-days';
-import { supabase } from '@/lib/supabase';
+import { listDocuments, COLLECTIONS, Query, type AppwriteDocument } from '@/lib/appwrite';
 
 type Lesson = { day: number; title: string; summary: string | null };
 type Progress = { day: number; completed_at: string | null };
@@ -12,7 +12,7 @@ type Progress = { day: number; completed_at: string | null };
 const COLORS = {
   locked: { bg: '#f8fafc', border: '#e2e8f0', text: '#64748b', icon: '#94a3b8' },
   unlocked: { bg: '#ecfdf5', border: '#a7f3d0', accent: '#059669', text: '#047857', badgeBg: '#059669' },
-  completed: { bg: '#eff6ff', border: '#bfdbfe', accent: '#2563eb', text: '#1d4ed8', badgeBg: '#2563eb' },
+  completed: { bg: '#f0fdf4', border: '#bbf7d0', accent: '#16a34a', text: '#15803d', badgeBg: '#16a34a' },
 } as const;
 
 export default function CourseListScreen() {
@@ -26,15 +26,34 @@ export default function CourseListScreen() {
 
   useEffect(() => {
     (async () => {
-      const { data: l } = await supabase.from('lessons').select('day, title, summary').order('day');
-      if (l) setLessons(l);
+      const { data: l } = await listDocuments<AppwriteDocument>(COLLECTIONS.lessons, [
+        Query.orderAsc('day'),
+        Query.limit(50),
+      ]);
+      if (l?.length) {
+        setLessons(
+          l.map((d) => {
+            const doc = d as AppwriteDocument;
+            const day = Number(doc.day ?? doc.$id ?? 0);
+            return {
+              day,
+              title: (doc.title as string) ?? '',
+              summary: (doc.summary as string | null) ?? null,
+            };
+          })
+        );
+      }
       if (!profile?.id) return;
-      const { data: p } = await supabase
-        .from('user_lesson_progress')
-        .select('day, completed_at')
-        .eq('user_id', profile.id);
+      const { data: p } = await listDocuments<AppwriteDocument>(COLLECTIONS.user_lesson_progress, [
+        Query.equal('user_id', [profile.id]),
+        Query.limit(100),
+      ]);
       const map: Record<number, string | null> = {};
-      (p ?? []).forEach((r: Progress) => (map[r.day] = r.completed_at));
+      (p ?? []).forEach((doc) => {
+        const d = doc as AppwriteDocument;
+        const dayNum = Number(d.day ?? d.$id ?? 0);
+        map[dayNum] = (d.completed_at as string | null) ?? null;
+      });
       setProgress(map);
     })();
   }, [profile?.id]);
@@ -88,7 +107,7 @@ export default function CourseListScreen() {
               </Text>
               <View style={[styles.badge, status !== 'locked' && { backgroundColor: c.badgeBg }]}>
                 <Text style={[styles.badgeText, status === 'locked' && styles.badgeTextMuted]}>
-                  {status === 'completed' ? 'Completado' : status === 'unlocked' ? 'Disponible' : 'Bloqueado'}
+                  {status === 'completed' ? 'Completada' : status === 'unlocked' ? 'Disponible' : 'Bloqueado'}
                 </Text>
               </View>
             </TouchableOpacity>

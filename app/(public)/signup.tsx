@@ -12,7 +12,7 @@ import {
 import { Link, useRouter } from 'expo-router';
 import { Button } from 'tamagui';
 import { User, Mail, Lock, Eye, EyeOff, KeyRound } from '@tamagui/lucide-icons';
-import { supabase } from '@/lib/supabase';
+import { account, execFunction, ID, createDocument, COLLECTIONS } from '@/lib/appwrite';
 import { useAuth } from '@/contexts/auth-context';
 import { AuthIllustration } from '@/components/auth-illustration';
 import { AuthInput } from '@/components/auth-input';
@@ -34,15 +34,17 @@ export default function SignupScreen() {
       setOrgPreview(null);
       return;
     }
-    const { data, error } = await supabase.rpc('validate_linking_code', { p_code: trimmed });
-    if (error) {
-      setOrgPreview({ valid: false, org_name: null });
-      return;
-    }
-    const row = Array.isArray(data) ? data[0] : data;
-    if (row?.valid && row?.org_name) {
-      setOrgPreview({ valid: true, org_name: row.org_name });
-    } else {
+    try {
+      const exec = await execFunction('validate_linking_code', { p_code: trimmed }, false);
+      const raw = exec.responseBody ?? exec.response ?? '';
+      const data = typeof raw === 'string' ? (raw ? JSON.parse(raw) : null) : raw;
+      const row = Array.isArray(data) ? data[0] : data;
+      if (row?.valid && row?.org_name) {
+        setOrgPreview({ valid: true, org_name: row.org_name });
+      } else {
+        setOrgPreview({ valid: false, org_name: null });
+      }
+    } catch {
       setOrgPreview({ valid: false, org_name: null });
     }
   }, []);
@@ -57,45 +59,49 @@ export default function SignupScreen() {
       return;
     }
     setLoading(true);
-    const { data: authData, error: authError } = await supabase.auth.signUp({
-      email: email.trim(),
-      password,
-      options: { data: { full_name: fullName.trim() } },
-    });
-    if (authError) {
-      setLoading(false);
-      Alert.alert('Error', authError.message);
-      return;
-    }
-    if (!authData.user) {
-      setLoading(false);
-      return;
-    }
-    const { error: joinError } = await supabase.rpc('join_org_with_code', {
-      p_code: linkingCode.trim(),
-      p_full_name: fullName.trim(),
-    });
-    if (joinError) {
-      setLoading(false);
-      const msg = joinError.message || '';
-      if (msg.includes('CODE_INVALID')) {
-        Alert.alert('Código inválido', 'El código de vinculación no es correcto. Verifica el código que te dio tu empresa.');
-      } else if (msg.includes('NO_SEATS')) {
-        Alert.alert('Sin plazas', 'No hay plazas disponibles en esta empresa. Contacta al administrador.');
-      } else if (msg.includes('ALREADY_MEMBER')) {
-        Alert.alert('Ya eres miembro', 'Ya perteneces a esta empresa.');
-      } else {
-        Alert.alert('Error', joinError.message);
+    try {
+      const userId = ID.unique();
+      const user = await account.create(userId, email.trim(), password, fullName.trim());
+      const actualUserId = (user as { $id?: string })?.$id ?? userId;
+      await account.createEmailPasswordSession(email.trim(), password);
+      const now = new Date().toISOString();
+      await createDocument(
+        COLLECTIONS.profiles,
+        {
+          full_name: fullName.trim(),
+          role: 'EMPLOYEE',
+          created_at: now,
+          updated_at: now,
+        },
+        actualUserId
+      );
+      try {
+        await execFunction(
+          'join_org_with_code',
+          { p_code: linkingCode.trim(), p_full_name: fullName.trim() },
+          false
+        );
+      } catch (joinErr) {
+        const msg = joinErr instanceof Error ? joinErr.message : String(joinErr);
+        if (msg.includes('CODE_INVALID')) {
+          Alert.alert('Código inválido', 'El código de vinculación no es correcto. Verifica el código que te dio tu empresa.');
+        } else if (msg.includes('NO_SEATS')) {
+          Alert.alert('Sin plazas', 'No hay plazas disponibles en esta empresa. Contacta al administrador.');
+        } else if (msg.includes('ALREADY_MEMBER')) {
+          Alert.alert('Ya eres miembro', 'Ya perteneces a esta empresa.');
+        } else {
+          Alert.alert('Error', msg);
+        }
+        setLoading(false);
+        return;
       }
-      return;
+      await setSessionAndLoadProfile(actualUserId);
+      router.replace('/(protected)/hoy');
+    } catch (authError) {
+      Alert.alert('Error', authError instanceof Error ? authError.message : 'No se pudo crear la cuenta.');
+    } finally {
+      setLoading(false);
     }
-    if (authData.session) {
-      await setSessionAndLoadProfile(authData.session);
-    } else {
-      await refresh();
-    }
-    setLoading(false);
-    router.replace('/(protected)/hoy');
   }
 
   return (

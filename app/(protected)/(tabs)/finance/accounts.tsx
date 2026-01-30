@@ -15,7 +15,7 @@ import {
 } from '@tamagui/lucide-icons';
 import { useAuth } from '@/contexts/auth-context';
 import { usePoints } from '@/contexts/points-context';
-import { supabase } from '@/lib/supabase';
+import { listDocuments, createDocument, updateDocument, COLLECTIONS, Query, type AppwriteDocument } from '@/lib/appwrite';
 import { awardPoints } from '@/lib/points';
 import { PointsRewardModal } from '@/components/PointsRewardModal';
 import type { SavingsGoal } from '@/types/database';
@@ -102,45 +102,62 @@ export default function AccountsScreen() {
     }
     setFetchError(null);
     setLoadingList(true);
-    const { data, error: accountsError } = await supabase
-      .from('accounts')
-      .select('id, name, type, currency, opening_balance, created_at')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: false });
-    setLoadingList(false);
-    if (accountsError) {
-      setFetchError(accountsError.message);
-      Alert.alert(
-        'Error al cargar cuentas',
-        accountsError.message + '\n\nSi el error menciona "column", revisa que todas las migraciones de Supabase estén aplicadas.',
-        [{ text: 'Entendido' }]
-      );
+    let accountsData: AppwriteDocument[] = [];
+    try {
+      const res = await listDocuments<AppwriteDocument>(COLLECTIONS.accounts, [
+        Query.equal('user_id', [userId]),
+        Query.orderDesc('$createdAt'),
+        Query.limit(200),
+      ]);
+      accountsData = res.data;
+      setAccounts(accountsData.map((a) => ({
+        id: (a as { $id?: string }).$id ?? (a as { id?: string }).id ?? '',
+        name: (a.name as string) ?? '',
+        type: (a.type as string) ?? '',
+        currency: (a.currency as string) ?? 'MXN',
+        opening_balance: Number(a.opening_balance ?? 0),
+      })) as Account[]);
+    } catch (accountsError) {
+      setLoadingList(false);
+      const msg = accountsError instanceof Error ? accountsError.message : 'Error al cargar cuentas';
+      setFetchError(msg);
+      Alert.alert('Error al cargar cuentas', msg, [{ text: 'Entendido' }]);
       setAccounts([]);
-    } else {
-      setAccounts((data ?? []) as Account[]);
+      return;
     }
-    const { data: tx, error: txError } = await supabase
-      .from('transactions')
-      .select('kind, amount, account_id, transfer_account_id, is_recurring')
-      .eq('user_id', userId);
-    if (txError) {
-      setFetchError((e) => (e ? e + '; ' : '') + txError.message);
+    try {
+      const { data: tx } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
+        Query.equal('user_id', [userId]),
+        Query.limit(5000),
+      ]);
+      setTxForBalance(tx as TxForBalance[]);
+    } catch (txError) {
+      setFetchError((e) => (e ? e + '; ' : '') + (txError instanceof Error ? txError.message : ''));
     }
-    setTxForBalance((tx ?? []) as TxForBalance[]);
-    const savingsIds = (data ?? []).filter((a: { type: string }) => a.type === 'SAVINGS').map((a: { id: string }) => a.id);
+    const savingsIds = accountsData.filter((a) => a.type === 'SAVINGS').map((a) => (a as { $id?: string }).$id ?? (a as { id?: string }).id ?? '');
     if (savingsIds.length > 0) {
-      const { data: goals } = await supabase
-        .from('savings_goals')
-        .select('id, account_id, target_amount, name, target_date, created_at, updated_at')
-        .in('account_id', savingsIds);
+      const { data: goals } = await listDocuments<AppwriteDocument>(COLLECTIONS.savings_goals, [
+        Query.equal('account_id', savingsIds),
+        Query.limit(100),
+      ]);
       const byAccount: Record<string, SavingsGoal> = {};
-      (goals ?? []).forEach((g: SavingsGoal) => {
-        byAccount[g.account_id] = { ...g, target_amount: Number(g.target_amount) };
+      goals.forEach((g) => {
+        const accountId = g.account_id as string;
+        byAccount[accountId] = {
+          id: (g as { $id?: string }).$id ?? (g as { id?: string }).id ?? '',
+          account_id: accountId,
+          target_amount: Number(g.target_amount ?? 0),
+          name: (g.name as string) ?? null,
+          target_date: (g as { target_date?: string }).target_date ?? null,
+          created_at: (g as { $createdAt?: string }).$createdAt ?? '',
+          updated_at: (g as { $updatedAt?: string }).$updatedAt ?? null,
+        };
       });
       setSavingsGoals(byAccount);
     } else {
       setSavingsGoals({});
     }
+    setLoadingList(false);
   }, [userId]);
 
   useEffect(() => {
@@ -182,26 +199,25 @@ export default function AccountsScreen() {
       const limit = creditLimit.trim() ? parseFloat(creditLimit) : null;
       insertPayload.credit_limit = limit != null && !Number.isNaN(limit) && limit >= 0 ? limit : null;
     }
-    const { data, error } = await supabase
-      .from('accounts')
-      .insert(insertPayload)
-      .select('id')
-      .single();
-    if (error) {
+    const result = await createDocument(COLLECTIONS.accounts, insertPayload as Record<string, unknown>);
+    const accountId = (result as { $id?: string }).$id ?? (result as { id?: string }).id ?? '';
+    if (!accountId) {
       setLoading(false);
-      Alert.alert('Error', error.message);
+      Alert.alert('Error', 'No se pudo crear la cuenta.');
       return;
     }
-    const accountId = data?.id;
     if (type === 'SAVINGS' && accountId && goalTargetAmount.trim()) {
       const target = parseFloat(goalTargetAmount.replace(/,/g, '.'));
       if (!Number.isNaN(target) && target > 0) {
-        const { error: goalErr } = await supabase.from('savings_goals').insert({
-          account_id: accountId,
-          target_amount: target,
-          name: goalName.trim() || null,
-        });
-        if (goalErr) Alert.alert('Aviso', 'Cuenta creada pero no se pudo guardar la meta: ' + goalErr.message);
+        try {
+          await createDocument(COLLECTIONS.savings_goals, {
+            account_id: accountId,
+            target_amount: target,
+            name: goalName.trim() || null,
+          } as Record<string, unknown>);
+        } catch (goalErr) {
+          Alert.alert('Aviso', 'Cuenta creada pero no se pudo guardar la meta: ' + (goalErr instanceof Error ? goalErr.message : ''));
+        }
       }
     }
     setLoading(false);
@@ -245,27 +261,31 @@ export default function AccountsScreen() {
     setGoalModalSaving(true);
     const existing = savingsGoals[goalModalAccountId];
     if (existing) {
-      const { error } = await supabase
-        .from('savings_goals')
-        .update({ target_amount: target, name: goalModalName.trim() || null, updated_at: new Date().toISOString() })
-        .eq('id', existing.id);
-      setGoalModalSaving(false);
-      if (error) {
-        Alert.alert('Error', error.message);
+      try {
+        await updateDocument(COLLECTIONS.savings_goals, existing.id, {
+          target_amount: target,
+          name: goalModalName.trim() || null,
+          updated_at: new Date().toISOString(),
+        });
+      } catch (err) {
+        setGoalModalSaving(false);
+        Alert.alert('Error', err instanceof Error ? err.message : 'Error al guardar');
         return;
       }
     } else {
-      const { error } = await supabase.from('savings_goals').insert({
-        account_id: goalModalAccountId,
-        target_amount: target,
-        name: goalModalName.trim() || null,
-      });
-      setGoalModalSaving(false);
-      if (error) {
-        Alert.alert('Error', error.message);
+      try {
+        await createDocument(COLLECTIONS.savings_goals, {
+          account_id: goalModalAccountId,
+          target_amount: target,
+          name: goalModalName.trim() || null,
+        } as Record<string, unknown>);
+      } catch (err) {
+        setGoalModalSaving(false);
+        Alert.alert('Error', err instanceof Error ? err.message : 'Error al guardar');
         return;
       }
     }
+    setGoalModalSaving(false);
     setGoalModalAccountId(null);
     await fetchAccountsAndTx();
   }

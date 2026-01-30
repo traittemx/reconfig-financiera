@@ -2,7 +2,7 @@ import { View, Text, StyleSheet, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Button } from 'tamagui';
 import { useAuth } from '@/contexts/auth-context';
-import { supabase } from '@/lib/supabase';
+import { account } from '@/lib/appwrite';
 import { EmotionalCheckin } from '@/components/pilot/EmotionalCheckin';
 
 export default function ProfileScreen() {
@@ -10,7 +10,9 @@ export default function ProfileScreen() {
   const { profile, subscription, refresh } = useAuth();
 
   async function signOut() {
-    await supabase.auth.signOut();
+    try {
+      await account.deleteSessions();
+    } catch {}
     await refresh();
     router.replace('/(public)/auth');
   }

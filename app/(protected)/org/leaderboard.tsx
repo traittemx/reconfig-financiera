@@ -3,7 +3,7 @@ import { View, Text, FlatList, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Button } from 'tamagui';
 import { useAuth } from '@/contexts/auth-context';
-import { supabase } from '@/lib/supabase';
+import { listDocuments, COLLECTIONS, Query, type AppwriteDocument } from '@/lib/appwrite';
 
 type LeaderboardRow = { user_id: string; full_name: string | null; total_points: number };
 
@@ -22,27 +22,35 @@ export default function OrgLeaderboardScreen() {
   useEffect(() => {
     if (!profile?.org_id) return;
     (async () => {
-      const { data } = await supabase
-        .from('points_totals')
-        .select('user_id, total_points')
-        .eq('org_id', profile.org_id)
-        .order('total_points', { ascending: false })
-        .limit(50);
+      const { data } = await listDocuments<AppwriteDocument>(COLLECTIONS.points_totals, [
+        Query.equal('org_id', [profile.org_id!]),
+        Query.orderDesc('total_points'),
+        Query.limit(50),
+      ]);
       if (!data?.length) {
         setRows([]);
         return;
       }
-      const userIds = data.map((r: { user_id: string }) => r.user_id);
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('id, full_name')
-        .in('id', userIds);
-      const profileMap = new Map((profiles ?? []).map((p: { id: string; full_name: string | null }) => [p.id, p.full_name]));
-      const list: LeaderboardRow[] = data.map((r: { user_id: string; total_points: number }) => ({
-        user_id: r.user_id,
-        full_name: profileMap.get(r.user_id) ?? null,
-        total_points: r.total_points,
-      }));
+      const userIds = data.map((d) => (d as AppwriteDocument).user_id as string);
+      const { data: profiles } = await listDocuments<AppwriteDocument>(COLLECTIONS.profiles, [
+        Query.equal('org_id', [profile.org_id!]),
+        Query.limit(200),
+      ]);
+      const profileMap = new Map(
+        profiles.map((p) => [
+          (p as AppwriteDocument).$id ?? (p as { id?: string }).id,
+          (p as AppwriteDocument).full_name as string | null,
+        ])
+      );
+      const list: LeaderboardRow[] = data.map((d) => {
+        const doc = d as AppwriteDocument;
+        const userId = doc.user_id as string;
+        return {
+          user_id: userId,
+          full_name: profileMap.get(userId) ?? null,
+          total_points: (doc.total_points as number) ?? 0,
+        };
+      });
       setRows(list);
     })();
   }, [profile?.org_id]);

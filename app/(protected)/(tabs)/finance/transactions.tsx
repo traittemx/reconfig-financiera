@@ -5,7 +5,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { MotiView } from 'moti';
 import { useAuth } from '@/contexts/auth-context';
 import { usePoints } from '@/contexts/points-context';
-import { supabase } from '@/lib/supabase';
+import { listDocuments, createDocument, updateDocument, deleteDocument, COLLECTIONS, Query, type AppwriteDocument } from '@/lib/appwrite';
 import { awardPoints } from '@/lib/points';
 import { PointsRewardModal } from '@/components/PointsRewardModal';
 import { NumericKeypad } from '@/components/finance/NumericKeypad';
@@ -145,49 +145,60 @@ export default function TransactionsScreen() {
   useEffect(() => {
     if (!profile?.id) return;
     (async () => {
-      const { data: accData } = await supabase.from('accounts').select('id, name').eq('user_id', profile.id);
-      setAccounts((accData ?? []) as Account[]);
-      const { data: catData } = await supabase
-        .from('categories')
-        .select('id, name, kind, icon, color')
-        .eq('user_id', profile.id)
-        .in('kind', ['INCOME', 'EXPENSE']);
-      setCategories((catData ?? []) as Category[]);
+      const { data: accData } = await listDocuments<AppwriteDocument>(COLLECTIONS.accounts, [
+        Query.equal('user_id', [profile.id]),
+        Query.limit(200),
+      ]);
+      setAccounts(accData.map((d) => ({ id: (d as { $id?: string }).$id ?? (d as { id?: string }).id ?? '', name: (d.name as string) ?? '' })) as Account[]);
+      const { data: catData } = await listDocuments<AppwriteDocument>(COLLECTIONS.categories, [
+        Query.equal('user_id', [profile.id]),
+        Query.equal('kind', ['INCOME', 'EXPENSE']),
+        Query.limit(500),
+      ]);
+      setCategories(catData.map((d) => ({ id: (d as { $id?: string }).$id ?? (d as { id?: string }).id ?? '', name: (d.name as string) ?? '', kind: (d.kind as string) ?? '', icon: (d.icon as string) ?? null, color: (d.color as string) ?? null })) as Category[]);
     })();
   }, [profile?.id]);
 
   const monthStart = startOfMonth(selectedMonth).toISOString();
   const monthEnd = endOfMonth(selectedMonth).toISOString();
 
+  const mapTxRow = (doc: AppwriteDocument): TransactionRow => ({
+    id: (doc as { $id?: string }).$id ?? (doc as { id?: string }).id ?? '',
+    kind: doc.kind as string,
+    amount: Number(doc.amount ?? 0),
+    occurred_at: doc.occurred_at as string,
+    note: doc.note as string | null,
+    account_id: doc.account_id as string,
+    category_id: doc.category_id as string | null,
+    transfer_account_id: doc.transfer_account_id as string | null,
+    is_recurring: doc.is_recurring as boolean | undefined,
+    recurrence_period: doc.recurrence_period as string | null,
+    recurrence_day_of_month: doc.recurrence_day_of_month as number | null,
+    recurrence_interval_months: doc.recurrence_interval_months as number | null,
+    recurrence_total_occurrences: doc.recurrence_total_occurrences as number | null,
+    expense_label: doc.expense_label as string | null,
+  });
+
   const fetchTransactions = useCallback(async () => {
     if (!profile?.id) return;
     try {
       const ms = startOfMonth(selectedMonth).toISOString();
       const me = endOfMonth(selectedMonth).toISOString();
-      const selectFields = 'id, kind, amount, occurred_at, note, account_id, category_id, transfer_account_id, is_recurring, recurrence_period, recurrence_day_of_month, recurrence_interval_months, recurrence_total_occurrences, expense_label';
-      const { data: txRows, error: txErr } = await supabase
-        .from('transactions')
-        .select(selectFields)
-        .eq('user_id', profile.id)
-        .gte('occurred_at', ms)
-        .lte('occurred_at', me)
-        .order('occurred_at', { ascending: false });
-      if (txErr) {
-        console.error('[transactions] fetch error', txErr);
-        setTransactions([]);
-        return;
-      }
-      const allInMonth = (txRows ?? []) as TransactionRow[];
+      const { data: txRows } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
+        Query.equal('user_id', [profile.id]),
+        Query.greaterThanEqual('occurred_at', ms),
+        Query.lessThanEqual('occurred_at', me),
+        Query.orderDesc('occurred_at'),
+        Query.limit(500),
+      ]);
+      const allInMonth = txRows.map(mapTxRow);
       const realRows = allInMonth.filter((r) => !r.is_recurring);
-      const { data: recurringTemplates, error: recErr } = await supabase
-        .from('transactions')
-        .select(selectFields)
-        .eq('user_id', profile.id)
-        .eq('is_recurring', true);
-      if (recErr) {
-        console.error('[transactions] fetch recurring error', recErr);
-      }
-      const templates = (recurringTemplates ?? []) as TransactionRow[];
+      const { data: recurringTemplates } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
+        Query.equal('user_id', [profile.id]),
+        Query.equal('is_recurring', [true]),
+        Query.limit(100),
+      ]);
+      const templates = recurringTemplates.map(mapTxRow);
       const monthStartDate = startOfMonth(selectedMonth);
       const monthEndDate = endOfMonth(selectedMonth);
       const virtuals: Transaction[] = [];
@@ -366,21 +377,17 @@ export default function TransactionsScreen() {
         })() : null,
         expense_label: kind === 'EXPENSE' ? expenseLabel : null,
       };
-      const { data, error } = await supabase.from('transactions').insert(payload).select('id').single();
-      if (error) {
-        console.error('[transactions] insert error', error);
-        Alert.alert('Error al guardar', error.message);
-        return;
-      }
-      if (!data?.id) {
-        console.error('[transactions] insert ok but no id', { data, error });
+      const result = await createDocument(COLLECTIONS.transactions, payload as Record<string, unknown>);
+      const newId = (result as { $id?: string }).$id ?? (result as { id?: string }).id;
+      if (!newId) {
+        console.error('[transactions] insert ok but no id', result);
         Alert.alert('Error al guardar', 'La transacción no se guardó. Revisa permisos o intenta de nuevo.');
         return;
       }
       let earnedPoints = 0;
       let hasDoubleReward = false;
       if (kind === 'EXPENSE') {
-        const p1 = await awardPoints(profile.org_id, userId, 'CREATE_EXPENSE', 'transactions', data.id);
+        const p1 = await awardPoints(profile.org_id, userId, 'CREATE_EXPENSE', 'transactions', newId);
         earnedPoints += p1;
         const txDate = new Date(occurredAtIso);
         const dayRec = await getDailyRecommendation(userId, profile.org_id, txDate);
@@ -391,7 +398,7 @@ export default function TransactionsScreen() {
         }
       }
       if (kind === 'INCOME') {
-        const p = await awardPoints(profile.org_id, userId, 'CREATE_INCOME', 'transactions', data.id);
+        const p = await awardPoints(profile.org_id, userId, 'CREATE_INCOME', 'transactions', newId);
         earnedPoints += p;
       }
       if (earnedPoints > 0) {
@@ -453,12 +460,7 @@ export default function TransactionsScreen() {
         })() : null;
         payload.recurrence_total_occurrences = totalOcc;
       }
-      const { error } = await supabase.from('transactions').update(payload).eq('id', realId);
-      if (error) {
-        console.error('[transactions] update error', error);
-        Alert.alert('Error al guardar', error.message);
-        return;
-      }
+      await updateDocument(COLLECTIONS.transactions, realId, payload);
       setAmount('');
       setCategoryId('');
       setTransferAccountId('');
@@ -500,12 +502,7 @@ export default function TransactionsScreen() {
     if (!profile?.id) return;
     setLoading(true);
     try {
-      const { error } = await supabase.from('transactions').delete().eq('id', item.id);
-      if (error) {
-        console.error('[transactions] delete error', error);
-        Alert.alert('Error al eliminar', error.message);
-        return;
-      }
+      await deleteDocument(COLLECTIONS.transactions, item.id);
       if (editingTx?.id === item.id) {
         setShowForm(false);
         setEditingTx(null);

@@ -5,7 +5,7 @@ import { Button } from 'tamagui';
 import { TrendingDown, TrendingUp, Pencil, Trash2 } from '@tamagui/lucide-icons';
 import { useAuth } from '@/contexts/auth-context';
 import { usePoints } from '@/contexts/points-context';
-import { supabase } from '@/lib/supabase';
+import { listDocuments, createDocument, updateDocument, deleteDocument, COLLECTIONS, Query, type AppwriteDocument } from '@/lib/appwrite';
 import { awardPoints } from '@/lib/points';
 import { PointsRewardModal } from '@/components/PointsRewardModal';
 import {
@@ -38,13 +38,19 @@ export default function CategoriesScreen() {
   useEffect(() => {
     if (!profile?.id || !profile.org_id) return;
     (async () => {
-      const { data } = await supabase
-        .from('categories')
-        .select('id, name, kind, icon, color')
-        .eq('user_id', profile.id)
-        .in('kind', ['INCOME', 'EXPENSE'])
-        .order('name');
-      setCategories((data ?? []) as Category[]);
+      const { data } = await listDocuments<AppwriteDocument>(COLLECTIONS.categories, [
+        Query.equal('user_id', [profile.id]),
+        Query.equal('kind', ['INCOME', 'EXPENSE']),
+        Query.orderAsc('name'),
+        Query.limit(500),
+      ]);
+      setCategories(data.map((d) => ({
+        id: (d as { $id?: string }).$id ?? (d as { id?: string }).id ?? '',
+        name: (d.name as string) ?? '',
+        kind: (d.kind as string) ?? '',
+        icon: (d.icon as string) ?? null,
+        color: (d.color as string) ?? null,
+      })) as Category[]);
     })();
   }, [profile?.id, profile?.org_id]);
 
@@ -69,25 +75,22 @@ export default function CategoriesScreen() {
   async function createCategory() {
     if (!name.trim() || !profile?.id || !profile.org_id) return;
     setLoading(true);
-    const { data, error } = await supabase
-      .from('categories')
-      .insert({
-        org_id: profile.org_id,
-        user_id: profile.id,
-        kind,
-        name: name.trim(),
-        is_default: false,
-        icon: selectedIcon,
-        color: selectedColor,
-      })
-      .select('id')
-      .single();
+    const result = await createDocument(COLLECTIONS.categories, {
+      org_id: profile.org_id,
+      user_id: profile.id,
+      kind,
+      name: name.trim(),
+      is_default: false,
+      icon: selectedIcon,
+      color: selectedColor,
+    } as Record<string, unknown>);
     setLoading(false);
-    if (error) {
-      Alert.alert('Error', error.message);
+    const newId = (result as { $id?: string }).$id ?? (result as { id?: string }).id ?? '';
+    if (!newId) {
+      Alert.alert('Error', 'No se pudo crear la categoría.');
       return;
     }
-    const pointsAwarded = await awardPoints(profile.org_id, profile.id, 'CREATE_CATEGORY', 'categories', data?.id);
+    const pointsAwarded = await awardPoints(profile.org_id, profile.id, 'CREATE_CATEGORY', 'categories', newId);
     if (pointsAwarded > 0) {
       setRewardToShow({ points: pointsAwarded, message: '¡Categoría creada!' });
     }
@@ -98,28 +101,38 @@ export default function CategoriesScreen() {
   async function updateCategory() {
     if (!editingCategory || !name.trim() || !profile?.id) return;
     setLoading(true);
-    const { error } = await supabase
-      .from('categories')
-      .update({ name: name.trim(), kind, icon: selectedIcon, color: selectedColor })
-      .eq('id', editingCategory.id);
-    setLoading(false);
-    if (error) {
-      Alert.alert('Error', error.message);
+    try {
+      await updateDocument(COLLECTIONS.categories, editingCategory.id, {
+        name: name.trim(),
+        kind,
+        icon: selectedIcon,
+        color: selectedColor,
+      });
+    } catch (err) {
+      setLoading(false);
+      Alert.alert('Error', err instanceof Error ? err.message : 'Error al guardar');
       return;
     }
+    setLoading(false);
     cancelForm();
     await refreshCategories();
   }
 
   async function refreshCategories() {
     if (!profile?.id) return;
-    const { data } = await supabase
-      .from('categories')
-      .select('id, name, kind, icon, color')
-      .eq('user_id', profile.id)
-      .in('kind', ['INCOME', 'EXPENSE'])
-      .order('name');
-    setCategories((data ?? []) as Category[]);
+    const { data } = await listDocuments<AppwriteDocument>(COLLECTIONS.categories, [
+      Query.equal('user_id', [profile.id]),
+      Query.equal('kind', ['INCOME', 'EXPENSE']),
+      Query.orderAsc('name'),
+      Query.limit(500),
+    ]);
+    setCategories(data.map((d) => ({
+      id: (d as { $id?: string }).$id ?? (d as { id?: string }).id ?? '',
+      name: (d.name as string) ?? '',
+      kind: (d.kind as string) ?? '',
+      icon: (d.icon as string) ?? null,
+      color: (d.color as string) ?? null,
+    })) as Category[]);
   }
 
   function confirmDelete(cat: Category) {
@@ -136,12 +149,14 @@ export default function CategoriesScreen() {
   async function deleteCategory(cat: Category) {
     if (!profile?.id) return;
     setLoading(true);
-    const { error } = await supabase.from('categories').delete().eq('id', cat.id);
-    setLoading(false);
-    if (error) {
-      Alert.alert('Error', error.message);
+    try {
+      await deleteDocument(COLLECTIONS.categories, cat.id);
+    } catch (err) {
+      setLoading(false);
+      Alert.alert('Error', err instanceof Error ? err.message : 'Error al eliminar');
       return;
     }
+    setLoading(false);
     if (editingCategory?.id === cat.id) cancelForm();
     await refreshCategories();
   }

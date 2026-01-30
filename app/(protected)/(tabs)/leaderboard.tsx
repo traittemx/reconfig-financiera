@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { View, Text, FlatList, StyleSheet } from 'react-native';
 import { useAuth } from '@/contexts/auth-context';
-import { supabase } from '@/lib/supabase';
+import { listDocuments, COLLECTIONS, Query, type AppwriteDocument } from '@/lib/appwrite';
 
 type LeaderboardRow = {
   user_id: string;
@@ -24,29 +24,32 @@ export default function LeaderboardScreen() {
   useEffect(() => {
     if (!profile?.org_id) return;
     (async () => {
-      const { data } = await supabase
-        .from('points_totals')
-        .select('user_id, total_points')
-        .eq('org_id', profile.org_id)
-        .order('total_points', { ascending: false })
-        .limit(50);
+      const { data } = await listDocuments<AppwriteDocument>(COLLECTIONS.points_totals, [
+        Query.equal('org_id', [profile.org_id!]),
+        Query.orderDesc('total_points'),
+        Query.limit(50),
+      ]);
       if (!data?.length) {
         setRows([]);
         return;
       }
-      const userIds = data.map((r: { user_id: string }) => r.user_id);
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('id, full_name, avatar_url')
-        .in('id', userIds);
-      const profileMap = new Map((profiles ?? []).map((p: { id: string; full_name: string | null; avatar_url: string | null }) => [p.id, p]));
-      const list: LeaderboardRow[] = data.map((r: { user_id: string; total_points: number }) => {
-        const p = profileMap.get(r.user_id);
+      const userIds = data.map((d) => (d as AppwriteDocument).user_id as string);
+      const { data: profiles } = await listDocuments<AppwriteDocument>(COLLECTIONS.profiles, [
+        Query.equal('org_id', [profile.org_id!]),
+        Query.limit(200),
+      ]);
+      const profileMap = new Map(
+        profiles.map((p) => [(p as AppwriteDocument).$id ?? (p as { id?: string }).id, p as AppwriteDocument])
+      );
+      const list: LeaderboardRow[] = data.map((d) => {
+        const doc = d as AppwriteDocument;
+        const userId = doc.user_id as string;
+        const p = profileMap.get(userId);
         return {
-          user_id: r.user_id,
-          full_name: p?.full_name ?? null,
-          avatar_url: p?.avatar_url ?? null,
-          total_points: r.total_points,
+          user_id: userId,
+          full_name: (p?.full_name as string | null) ?? null,
+          avatar_url: (p?.avatar_url as string | null) ?? null,
+          total_points: (doc.total_points as number) ?? 0,
         };
       });
       setRows(list);

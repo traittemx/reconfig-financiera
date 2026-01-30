@@ -1,0 +1,9 @@
+{
+  "name": "validate_linking_code",
+  "version": "1.0.0",
+  "description": "Appwrite Function: validate linking code for org signup",
+  "main": "src/main.js",
+  "dependencies": {
+    "node-appwrite": "^11.0.0"
+  }
+}
