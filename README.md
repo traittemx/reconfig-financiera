@@ -75,10 +75,11 @@ npm run android
 ## Deploy en Vercel (web)
 
 1. Conecta el repositorio a Vercel.
-2. **Build command:** `npm run web:build`
-3. **Output directory:** `dist` (Expo exporta ahí con `expo export --platform web`).
-4. **Environment variables:** añade `EXPO_PUBLIC_SUPABASE_URL` y `EXPO_PUBLIC_SUPABASE_ANON_KEY`.
-5. Para SPA: en **Settings > Rewrites** puedes añadir una regla para que todas las rutas sirvan `index.html` (Vercel suele hacerlo por defecto para proyectos SPA).
+2. **Root Directory (importante):** Si el repo tiene esta app en una subcarpeta (ej. `Reconfiguracion-Financiera`), en **Project Settings → General → Root Directory** pon esa carpeta. Si no, Vercel construye desde la raíz del repo y obtendrás 404 (no encuentra `dist`).
+3. **Build command:** `npm run web:build` (o `npx expo export --platform web`). El `vercel.json` del proyecto ya lo define.
+4. **Output directory:** `dist`.
+5. **Framework Preset:** Other (no Next.js ni otro).
+6. **Environment variables:** añade `EXPO_PUBLIC_SUPABASE_URL` y `EXPO_PUBLIC_SUPABASE_ANON_KEY`.
 
 ## Estructura de la app (Expo Router)
 
