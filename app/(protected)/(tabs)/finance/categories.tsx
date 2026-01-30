@@ -1,32 +1,70 @@
 import { useEffect, useState } from 'react';
-import { View, Text, FlatList, TextInput, StyleSheet, Alert, Platform } from 'react-native';
+import { View, Text, ScrollView, TextInput, StyleSheet, Alert, Platform, TouchableOpacity } from 'react-native';
+import { MotiView } from 'moti';
 import { Button } from 'tamagui';
+import { TrendingDown, TrendingUp, Pencil, Trash2 } from '@tamagui/lucide-icons';
 import { useAuth } from '@/contexts/auth-context';
+import { usePoints } from '@/contexts/points-context';
 import { supabase } from '@/lib/supabase';
 import { awardPoints } from '@/lib/points';
+import { PointsRewardModal } from '@/components/PointsRewardModal';
+import {
+  getCategoryIcon,
+  getCategoryColor,
+  CATEGORY_ICON_OPTIONS,
+  CATEGORY_COLOR_OPTIONS,
+} from '@/lib/category-icons';
 
-type Category = { id: string; name: string; kind: string };
+type Category = { id: string; name: string; kind: string; icon?: string | null; color?: string | null };
+
+const KIND_OPTIONS = [
+  { value: 'EXPENSE' as const, label: 'Categoría de gasto', icon: TrendingDown },
+  { value: 'INCOME' as const, label: 'Categoría de ingreso', icon: TrendingUp },
+];
 
 export default function CategoriesScreen() {
   const { profile } = useAuth();
+  const pointsContext = usePoints();
+  const [rewardToShow, setRewardToShow] = useState<{ points: number; message: string } | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [name, setName] = useState('');
   const [kind, setKind] = useState<'INCOME' | 'EXPENSE'>('EXPENSE');
+  const [selectedIcon, setSelectedIcon] = useState('Receipt');
+  const [selectedColor, setSelectedColor] = useState('#2563eb');
   const [loading, setLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
 
   useEffect(() => {
     if (!profile?.id || !profile.org_id) return;
     (async () => {
       const { data } = await supabase
         .from('categories')
-        .select('id, name, kind')
+        .select('id, name, kind, icon, color')
         .eq('user_id', profile.id)
         .in('kind', ['INCOME', 'EXPENSE'])
         .order('name');
       setCategories((data ?? []) as Category[]);
     })();
   }, [profile?.id, profile?.org_id]);
+
+  function openEditForm(cat: Category) {
+    setEditingCategory(cat);
+    setName(cat.name);
+    setKind(cat.kind as 'INCOME' | 'EXPENSE');
+    setSelectedIcon(cat.icon ?? 'Receipt');
+    setSelectedColor(cat.color ?? '#2563eb');
+    setShowForm(true);
+  }
+
+  function cancelForm() {
+    setShowForm(false);
+    setEditingCategory(null);
+    setName('');
+    setKind('EXPENSE');
+    setSelectedIcon('Receipt');
+    setSelectedColor('#2563eb');
+  }
 
   async function createCategory() {
     if (!name.trim() || !profile?.id || !profile.org_id) return;
@@ -39,6 +77,8 @@ export default function CategoriesScreen() {
         kind,
         name: name.trim(),
         is_default: false,
+        icon: selectedIcon,
+        color: selectedColor,
       })
       .select('id')
       .single();
@@ -47,73 +87,331 @@ export default function CategoriesScreen() {
       Alert.alert('Error', error.message);
       return;
     }
-    await awardPoints(profile.org_id, profile.id, 'CREATE_CATEGORY', 'categories', data?.id);
-    setName('');
-    setShowForm(false);
-    const { data: list } = await supabase
+    const pointsAwarded = await awardPoints(profile.org_id, profile.id, 'CREATE_CATEGORY', 'categories', data?.id);
+    if (pointsAwarded > 0) {
+      setRewardToShow({ points: pointsAwarded, message: '¡Categoría creada!' });
+    }
+    cancelForm();
+    await refreshCategories();
+  }
+
+  async function updateCategory() {
+    if (!editingCategory || !name.trim() || !profile?.id) return;
+    setLoading(true);
+    const { error } = await supabase
       .from('categories')
-      .select('id, name, kind')
+      .update({ name: name.trim(), kind, icon: selectedIcon, color: selectedColor })
+      .eq('id', editingCategory.id);
+    setLoading(false);
+    if (error) {
+      Alert.alert('Error', error.message);
+      return;
+    }
+    cancelForm();
+    await refreshCategories();
+  }
+
+  async function refreshCategories() {
+    if (!profile?.id) return;
+    const { data } = await supabase
+      .from('categories')
+      .select('id, name, kind, icon, color')
       .eq('user_id', profile.id)
       .in('kind', ['INCOME', 'EXPENSE'])
       .order('name');
-    setCategories((list ?? []) as Category[]);
+    setCategories((data ?? []) as Category[]);
   }
 
+  function confirmDelete(cat: Category) {
+    Alert.alert(
+      'Eliminar categoría',
+      `¿Eliminar "${cat.name}"? Las transacciones quedarán sin categoría y los límites de presupuesto asociados se eliminarán.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Eliminar', style: 'destructive', onPress: () => deleteCategory(cat) },
+      ]
+    );
+  }
+
+  async function deleteCategory(cat: Category) {
+    if (!profile?.id) return;
+    setLoading(true);
+    const { error } = await supabase.from('categories').delete().eq('id', cat.id);
+    setLoading(false);
+    if (error) {
+      Alert.alert('Error', error.message);
+      return;
+    }
+    if (editingCategory?.id === cat.id) cancelForm();
+    await refreshCategories();
+  }
+
+  const expenseCategories = categories.filter((c) => c.kind === 'EXPENSE');
+  const incomeCategories = categories.filter((c) => c.kind === 'INCOME');
+
   return (
-    <View style={styles.container}>
-      <Button onPress={() => setShowForm(!showForm)} theme="blue" size="$3">
-        {showForm ? 'Cancelar' : 'Nueva categoría'}
-      </Button>
-      {showForm && (
-        <View style={styles.form}>
-          <TextInput
-            style={styles.input}
-            placeholder="Nombre"
-            value={name}
-            onChangeText={setName}
-            editable={!loading}
-          />
-          <TextInput
-            style={styles.input}
-            placeholder="Tipo: INCOME o EXPENSE"
-            value={kind}
-            onChangeText={(t) => setKind(t as 'INCOME' | 'EXPENSE')}
-            editable={!loading}
-          />
-          <Button onPress={createCategory} disabled={loading} theme="green">
-            {loading ? 'Guardando...' : 'Crear'}
+    <View style={styles.wrapper}>
+      <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <MotiView
+          from={{ opacity: 0, translateY: 8 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ type: 'timing', duration: 400 }}
+        >
+          <Button
+            onPress={() => (showForm ? cancelForm() : setShowForm(true))}
+            theme="blue"
+            size="$3"
+            width="100%"
+            marginBottom={20}
+          >
+            {showForm ? 'Cancelar' : 'Nueva categoría'}
           </Button>
-        </View>
-      )}
-      <FlatList
-        data={categories}
-        keyExtractor={(item) => item.id}
-        style={styles.list}
-        renderItem={({ item }) => (
-          <View style={styles.row}>
-            <Text style={styles.name}>{item.name}</Text>
-            <Text style={styles.kind}>{item.kind}</Text>
-          </View>
+        </MotiView>
+
+        {showForm && (
+          <MotiView
+            from={{ opacity: 0, translateY: 12 }}
+            animate={{ opacity: 1, translateY: 0 }}
+            transition={{ type: 'timing', duration: 350 }}
+            style={styles.formCard}
+          >
+            <Text style={styles.fieldLabel}>Tipo</Text>
+            <View style={styles.kindRow}>
+              {KIND_OPTIONS.map(({ value, label, icon: Icon }) => (
+                <TouchableOpacity
+                  key={value}
+                  onPress={() => setKind(value)}
+                  style={[styles.kindChip, kind === value && styles.kindChipActive]}
+                >
+                  <Icon size={20} color={kind === value ? '#fff' : '#64748b'} />
+                  <Text style={[styles.kindChipText, kind === value && styles.kindChipTextActive]}>{label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={styles.fieldLabel}>Nombre</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Ej. Comida, Transporte, Nómina"
+              value={name}
+              onChangeText={setName}
+              editable={!loading}
+            />
+            <Text style={styles.fieldLabel}>Icono</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.iconPicker}>
+              {CATEGORY_ICON_OPTIONS.map(({ value }) => {
+                const IconComponent = getCategoryIcon(value, kind);
+                const isSelected = selectedIcon === value;
+                return (
+                  <TouchableOpacity
+                    key={value}
+                    onPress={() => setSelectedIcon(value)}
+                    style={[
+                      styles.iconOption,
+                      { backgroundColor: isSelected ? selectedColor + '33' : '#f1f5f9' },
+                      isSelected && { borderColor: selectedColor, borderWidth: 2 },
+                    ]}
+                  >
+                    <IconComponent size={24} color={isSelected ? selectedColor : '#64748b'} />
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            <Text style={styles.fieldLabel}>Color</Text>
+            <View style={styles.colorRow}>
+              {CATEGORY_COLOR_OPTIONS.map((color) => (
+                <TouchableOpacity
+                  key={color}
+                  onPress={() => setSelectedColor(color)}
+                  style={[
+                    styles.colorOption,
+                    { backgroundColor: color },
+                    selectedColor === color && styles.colorOptionSelected,
+                  ]}
+                />
+              ))}
+            </View>
+            <Button
+              onPress={editingCategory ? updateCategory : createCategory}
+              disabled={loading}
+              theme="green"
+              size="$4"
+            >
+              {loading ? 'Guardando...' : editingCategory ? 'Guardar cambios' : 'Crear categoría'}
+            </Button>
+          </MotiView>
         )}
+
+        <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 150 }}>
+          <Text style={styles.helper}>
+            Estas categorías se usan al registrar gastos e ingresos en Transacciones.
+          </Text>
+        </MotiView>
+
+        <Text style={styles.sectionTitle}>Categorías de gastos</Text>
+        {expenseCategories.length === 0 ? (
+          <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }}>
+            <Text style={styles.emptyText}>No hay categorías de gasto. Crea una arriba.</Text>
+          </MotiView>
+        ) : (
+          expenseCategories.map((item, index) => {
+            const IconComp = getCategoryIcon(item.icon, 'EXPENSE');
+            const color = getCategoryColor(item.color, index);
+            return (
+              <MotiView
+                key={item.id}
+                from={{ opacity: 0, translateX: -12 }}
+                animate={{ opacity: 1, translateX: 0 }}
+                transition={{ type: 'timing', duration: 320, delay: 180 + index * 50 }}
+              style={styles.catCard}
+            >
+                <View style={[styles.catIconWrap, { backgroundColor: color + '22' }]}>
+                  <IconComp size={22} color={color} />
+                </View>
+                <Text style={styles.catName}>{item.name}</Text>
+                <View style={styles.catActions}>
+                  <TouchableOpacity onPress={() => openEditForm(item)} style={styles.catActionBtn} accessibilityLabel="Editar">
+                    <Pencil size={18} color="#2563eb" />
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => confirmDelete(item)} style={styles.catActionBtn} accessibilityLabel="Eliminar">
+                    <Trash2 size={18} color="#dc2626" />
+                  </TouchableOpacity>
+                </View>
+              </MotiView>
+            );
+          })
+        )}
+
+        <Text style={styles.sectionTitle}>Categorías de ingresos</Text>
+        {incomeCategories.length === 0 ? (
+          <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }}>
+            <Text style={styles.emptyText}>No hay categorías de ingreso. Crea una arriba.</Text>
+          </MotiView>
+        ) : (
+          incomeCategories.map((item, index) => {
+            const IconComp = getCategoryIcon(item.icon, 'INCOME');
+            const color = getCategoryColor(item.color, index);
+            return (
+              <MotiView
+                key={item.id}
+                from={{ opacity: 0, translateX: -12 }}
+                animate={{ opacity: 1, translateX: 0 }}
+                transition={{ type: 'timing', duration: 320, delay: 200 + index * 50 }}
+              style={styles.catCard}
+            >
+                <View style={[styles.catIconWrap, { backgroundColor: color + '22' }]}>
+                  <IconComp size={22} color={color} />
+                </View>
+                <Text style={styles.catName}>{item.name}</Text>
+                <View style={styles.catActions}>
+                  <TouchableOpacity onPress={() => openEditForm(item)} style={styles.catActionBtn} accessibilityLabel="Editar">
+                    <Pencil size={18} color="#2563eb" />
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => confirmDelete(item)} style={styles.catActionBtn} accessibilityLabel="Eliminar">
+                    <Trash2 size={18} color="#dc2626" />
+                  </TouchableOpacity>
+                </View>
+              </MotiView>
+            );
+          })
+        )}
+      </ScrollView>
+
+      <PointsRewardModal
+        visible={rewardToShow !== null}
+        points={rewardToShow?.points ?? 0}
+        message={rewardToShow?.message ?? ''}
+        onDismiss={() => {
+          setRewardToShow(null);
+          pointsContext?.refresh();
+        }}
       />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: '#fff' },
-  form: { marginTop: 16, marginBottom: 24 },
+  wrapper: { flex: 1, backgroundColor: '#f1f5f9' },
+  container: { flex: 1 },
+  content: { padding: 20, paddingBottom: 40 },
+  formCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  fieldLabel: { fontSize: 14, fontWeight: '600', color: '#334155', marginBottom: 10 },
+  kindRow: { flexDirection: 'row', gap: 10, marginBottom: 18 },
+  kindChip: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: '#f1f5f9',
+  },
+  kindChipActive: { backgroundColor: '#2563eb' },
+  kindChipText: { fontSize: 13, fontWeight: '600', color: '#64748b' },
+  kindChipTextActive: { color: '#fff' },
   input: {
     borderWidth: 1,
-    borderColor: '#e5e5e5',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 12,
+    borderColor: '#e2e8f0',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 18,
     fontSize: 16,
+    backgroundColor: '#fff',
     ...(Platform.OS === 'web' && { outlineStyle: 'none' }),
   },
-  list: { flex: 1 },
-  row: { padding: 16, borderBottomWidth: 1, borderBottomColor: '#eee', flexDirection: 'row', alignItems: 'center', gap: 12 },
-  name: { flex: 1, fontWeight: '600' },
-  kind: { fontSize: 12, color: '#666' },
+  iconPicker: { flexDirection: 'row', marginBottom: 18, gap: 8 },
+  iconOption: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  colorRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 18 },
+  colorOption: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+  },
+  colorOptionSelected: {
+    borderWidth: 3,
+    borderColor: '#0f172a',
+  },
+  helper: { fontSize: 13, color: '#64748b', marginBottom: 20 },
+  sectionTitle: { fontSize: 17, fontWeight: '700', color: '#0f172a', marginBottom: 12, marginTop: 8 },
+  emptyText: { fontSize: 14, color: '#94a3b8', marginBottom: 16 },
+  catCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  catIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+  },
+  catName: { fontSize: 16, fontWeight: '700', color: '#0f172a', flex: 1 },
+  catActions: { flexDirection: 'row', gap: 8 },
+  catActionBtn: { padding: 8 },
 });

@@ -17,6 +17,14 @@ export default function SuperadminDashboardScreen() {
       >
         Organizaciones
       </Button>
+      <Button
+        theme="blue"
+        size="$4"
+        onPress={() => router.push('/superadmin/lessons')}
+        style={styles.btn}
+      >
+        Contenido del curso
+      </Button>
       <Button onPress={() => router.back()} theme="gray" size="$3" style={{ marginTop: 24 }}>
         Volver
       </Button>

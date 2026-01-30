@@ -6,7 +6,7 @@ CREATE TYPE app_role AS ENUM ('SUPER_ADMIN', 'ORG_ADMIN', 'EMPLOYEE');
 CREATE TYPE org_member_role AS ENUM ('ORG_ADMIN', 'EMPLOYEE');
 CREATE TYPE org_member_status AS ENUM ('active', 'disabled');
 CREATE TYPE subscription_status AS ENUM ('trial', 'active', 'past_due', 'canceled');
-CREATE TYPE account_type AS ENUM ('CASH', 'BANK', 'CARD', 'SAVINGS', 'INVESTMENT');
+CREATE TYPE account_type AS ENUM ('CASH', 'BANK', 'CARD', 'SAVINGS', 'INVESTMENT', 'CREDIT');
 CREATE TYPE transaction_kind AS ENUM ('INCOME', 'EXPENSE', 'TRANSFER');
 CREATE TYPE category_kind AS ENUM ('INCOME', 'EXPENSE', 'TRANSFER');
 

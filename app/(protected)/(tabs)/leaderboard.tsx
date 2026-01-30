@@ -56,6 +56,12 @@ export default function LeaderboardScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Ranking por puntos</Text>
+      {rows.length === 0 ? (
+        <View style={styles.empty}>
+          <Text style={styles.emptyText}>Aún no hay puntos en el ranking.</Text>
+          <Text style={styles.emptySub}>Completa lecciones y registra transacciones para sumar puntos.</Text>
+        </View>
+      ) : (
       <FlatList
         data={rows}
         keyExtractor={(item) => item.user_id}
@@ -75,6 +81,7 @@ export default function LeaderboardScreen() {
           </View>
         )}
       />
+      )}
     </View>
   );
 }
@@ -82,6 +89,9 @@ export default function LeaderboardScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 16, backgroundColor: '#fff' },
   title: { fontSize: 20, fontWeight: 'bold', marginBottom: 16, textAlign: 'center' },
+  empty: { flex: 1, justifyContent: 'center', padding: 24, alignItems: 'center' },
+  emptyText: { fontSize: 16, color: '#666', textAlign: 'center' },
+  emptySub: { fontSize: 14, color: '#999', marginTop: 8, textAlign: 'center' },
   list: { flex: 1 },
   row: {
     flexDirection: 'row',

@@ -56,6 +56,8 @@ npm run android
 1. Crea un proyecto en Supabase.
 2. En el **SQL Editor**, ejecuta en este orden:
    - Contenido de `supabase/migrations/001_initial.sql` (esquema, RLS, triggers, función `award_points`).
+   - Contenido de `supabase/migrations/002_add_account_type_credit.sql` (si existe).
+   - Contenido de `supabase/migrations/003_super_admin_lessons.sql` (permisos super admin en lessons y función `set_first_super_admin`).
    - Contenido de `supabase/seed.sql` (lecciones 1..23, `points_rules`, RPC `seed_default_categories`).
 3. En **Authentication > Providers** asegura que **Email** está habilitado (email + password).
 
@@ -91,6 +93,14 @@ npm run android
 - **SUPER_ADMIN:** Acceso total; gestiona organizaciones y suscripciones.
 - **ORG_ADMIN:** Admin de su empresa; invita empleados; ve leaderboard y progreso del curso (no ve transacciones ni montos).
 - **EMPLOYEE:** Curso + finanzas personales; participa en leaderboard.
+
+## Crear el primer Super Admin
+
+1. Regístrate en la app con el email que quieras usar como super admin.
+2. En Supabase SQL Editor, ejecuta (sustituye el email):  
+   `UPDATE profiles SET role = 'SUPER_ADMIN' WHERE id = (SELECT id FROM auth.users WHERE email = 'tu-email@ejemplo.com');`  
+   O usa el script `scripts/set-super-admin.sql` o la función `set_first_super_admin('email')` si aplicaste la migración 003.  
+   Ver [docs/SUPER_ADMIN_SETUP.md](docs/SUPER_ADMIN_SETUP.md) para más opciones.
 
 ## PWA
 

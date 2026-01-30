@@ -109,7 +109,7 @@ export default function InviteAcceptScreen() {
           .eq('id', invite.id);
         await refresh();
         setLoading(false);
-        router.replace('/(tabs)');
+        router.replace('/(protected)/hoy');
         return;
       }
       setLoading(false);
@@ -142,7 +142,7 @@ export default function InviteAcceptScreen() {
       .eq('id', invite.id);
     await refresh();
     setLoading(false);
-    router.replace('/(tabs)');
+    router.replace('/(protected)/hoy');
   }
 
   if (error) {

@@ -1,5 +1,6 @@
 import { Tabs } from 'expo-router';
 import { BookOpen, Wallet, Trophy, User } from '@tamagui/lucide-icons';
+import { PointsBadge } from '@/components/PointsBadge';
 
 export default function TabsLayout() {
   return (
@@ -7,6 +8,8 @@ export default function TabsLayout() {
       screenOptions={{
         headerShown: true,
         tabBarActiveTintColor: '#2563eb',
+        sceneContainerStyle: { flex: 1 },
+        headerRight: () => <PointsBadge />,
       }}
     >
       <Tabs.Screen
@@ -15,7 +18,6 @@ export default function TabsLayout() {
           title: 'Curso',
           tabBarLabel: 'Curso',
           tabBarIcon: ({ color, size }) => <BookOpen color={color} size={size} />,
-          headerTitle: 'Curso 23 días',
         }}
       />
       <Tabs.Screen

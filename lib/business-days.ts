@@ -18,15 +18,15 @@ export function businessDaysBetween(start: Date, end: Date): number {
 }
 
 /**
- * Day (1..23) unlocked for a user based on start_date: day_unlocked = min(23, business_days_since(start_date, today) + 1).
- * Assumes day 1 = first business day after (or on) start_date.
+ * Day (1..23) unlocked for a user based on start_date.
+ * Day 1 is unlocked on the registration day (start_date); each following business day unlocks the next.
  */
 export function getDayUnlocked(startDate: Date | null): number {
   if (!startDate) return 0;
   const today = startOfDay(new Date());
   const start = startOfDay(startDate);
   if (today < start) return 0;
-  const n = businessDaysBetween(start, today) + 1;
+  const n = businessDaysBetween(start, today);
   return Math.min(23, Math.max(1, n));
 }
 
