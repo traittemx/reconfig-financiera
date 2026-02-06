@@ -47,7 +47,7 @@ Para cada carpeta (`validate_linking_code`, `join_org_with_code`, `seed_default_
   - Función `seed_default_accounts` → Root directory: `appwrite-functions/seed_default_accounts`
   - Función `award_points` → Root directory: `appwrite-functions/award_points`
   Así Appwrite hará `npm install` y `npm run build` solo dentro de esa carpeta (solo se instala `node-appwrite`) y no todo el proyecto.
-- Cada carpeta tiene `package.json` con `node-appwrite`, `main: "src/main.js"` y script `build` (para que el paso de build no falle).
+- Cada carpeta tiene `package.json` con `node-appwrite` **^15.0.1 o superior** (versiones anteriores provocan "request cannot have request body" en Appwrite Cloud), `main: "src/main.js"` y script `build` (para que el paso de build no falle).
 - Opción A – **Subir ZIP**: desde la carpeta de la función (`appwrite-functions/validate_linking_code/`), ejecuta `npm install`, luego comprime `src/`, `node_modules/` y `package.json` y sube el ZIP en **Deployments**.
 - Opción B – **Git**: conecta el repo; en **Root directory** indica la carpeta de la función (ej. `appwrite-functions/validate_linking_code`). Build: **Install** `npm install`, **Build** `npm run build` (o deja el que venga por defecto).
 
