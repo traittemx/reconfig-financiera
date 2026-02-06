@@ -3,13 +3,15 @@
  * when the Appwrite Cloud Functions are not deployed (404) or fail.
  * Same data as appwrite-functions/seed_default_categories and seed_default_accounts.
  */
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   listDocuments,
   createDocument,
-  updateDocument,
   COLLECTIONS,
   Query,
 } from '@/lib/appwrite';
+
+const DEFAULTS_SEEDED_KEY = 'finaria_defaults_seeded';
 
 const DEFAULT_CATEGORIES = [
   { kind: 'INCOME', name: 'Salario', icon: 'Wallet', color: '#0d9488' },
@@ -95,12 +97,28 @@ export async function seedDefaultsLocally(
 }
 
 /**
- * Marks the user profile as "defaults already seeded" so we don't run seed again on every load.
- * Call after seed (Cloud Function or local) succeeds.
+ * Returns true if we've already seeded defaults for this user (from profile or AsyncStorage).
+ * Use this to avoid running seed on every load without needing to PATCH profiles
+ * (avoids 400 when the profiles collection doesn't have defaults_seeded_at).
  */
-export async function markProfileDefaultsSeeded(profileId: string): Promise<void> {
-  const now = new Date().toISOString();
-  await updateDocument(COLLECTIONS.profiles, profileId, {
-    defaults_seeded_at: now,
-  });
+export async function hasDefaultsSeededForUser(userId: string): Promise<boolean> {
+  try {
+    const stored = await AsyncStorage.getItem(`${DEFAULTS_SEEDED_KEY}_${userId}`);
+    return stored === 'true';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Marks that we've seeded defaults for this user (AsyncStorage only).
+ * Call after seed (Cloud Function or local) succeeds.
+ * Avoids PATCH to profiles so we never get 400 when the collection has no defaults_seeded_at attribute.
+ */
+export async function setDefaultsSeededForUser(userId: string): Promise<void> {
+  try {
+    await AsyncStorage.setItem(`${DEFAULTS_SEEDED_KEY}_${userId}`, 'true');
+  } catch {
+    // ignore
+  }
 }

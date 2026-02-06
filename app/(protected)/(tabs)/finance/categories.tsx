@@ -6,7 +6,7 @@ import { TrendingDown, TrendingUp, Pencil, Trash2 } from '@tamagui/lucide-icons'
 import { useAuth } from '@/contexts/auth-context';
 import { usePoints } from '@/contexts/points-context';
 import { listDocuments, createDocument, updateDocument, deleteDocument, execFunction, COLLECTIONS, Query, type AppwriteDocument } from '@/lib/appwrite';
-import { seedDefaultsLocally, markProfileDefaultsSeeded } from '@/lib/seed-defaults';
+import { seedDefaultsLocally, hasDefaultsSeededForUser, setDefaultsSeededForUser } from '@/lib/seed-defaults';
 import { awardPoints } from '@/lib/points';
 import { PointsRewardModal } from '@/components/PointsRewardModal';
 import {
@@ -39,8 +39,9 @@ export default function CategoriesScreen() {
   useEffect(() => {
     if (!profile?.id || !profile.org_id) return;
     (async () => {
-      // Seed default categories/accounts only the first time (per profile.defaults_seeded_at).
-      if (!profile.defaults_seeded_at) {
+      // Seed default categories/accounts only the first time (profile.defaults_seeded_at or AsyncStorage).
+      // We use AsyncStorage to remember "already seeded" so we never PATCH profiles (avoids 400 when attribute doesn't exist).
+      if (!profile.defaults_seeded_at && !(await hasDefaultsSeededForUser(profile.id))) {
         let ok = false;
         try {
           await Promise.all([
@@ -55,10 +56,8 @@ export default function CategoriesScreen() {
           } catch (_) {}
         }
         if (ok) {
-          try {
-            await markProfileDefaultsSeeded(profile.id);
-            await refresh();
-          } catch (_) {}
+          await setDefaultsSeededForUser(profile.id);
+          await refresh();
         }
       }
       const { data } = await listDocuments<AppwriteDocument>(COLLECTIONS.categories, [

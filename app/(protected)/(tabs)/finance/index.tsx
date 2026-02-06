@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/auth-context';
 import { execFunction, listDocuments, COLLECTIONS, Query, type AppwriteDocument } from '@/lib/appwrite';
-import { seedDefaultsLocally, markProfileDefaultsSeeded } from '@/lib/seed-defaults';
+import { seedDefaultsLocally, hasDefaultsSeededForUser, setDefaultsSeededForUser } from '@/lib/seed-defaults';
 import { startOfMonth, endOfMonth, format, addMonths, subMonths, differenceInMonths } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { MotiView } from 'moti';
@@ -73,6 +74,8 @@ type BudgetCategoryRemaining = {
   remaining: number;
 };
 
+const PILOT_CARD_DISMISSED_KEY = 'pilot_card_dismissed';
+
 const LINK_ITEMS = [
   { label: 'Ver cuentas', href: '/(tabs)/finance/accounts', icon: CreditCard },
   { label: 'Ver transacciones', href: '/(tabs)/finance/transactions', icon: List },
@@ -99,6 +102,7 @@ export default function FinanceOverviewScreen() {
   const [budgetRemaining, setBudgetRemaining] = useState<BudgetCategoryRemaining[]>([]);
   const [last3MonthsStats, setLast3MonthsStats] = useState<MonthStats[]>([]);
   const [pilotRecommendation, setPilotRecommendation] = useState<PilotRecommendation | null>(null);
+  const [pilotCardDismissedDate, setPilotCardDismissedDate] = useState<string | null>(null);
   const [savingsGoalsWithProgress, setSavingsGoalsWithProgress] = useState<SavingsGoalWithProgress[]>([]);
   const [liquidAssetsTotal, setLiquidAssetsTotal] = useState<number>(0);
   const [safeBudgetTotal, setSafeBudgetTotal] = useState<number>(0);
@@ -131,6 +135,13 @@ export default function FinanceOverviewScreen() {
     if (!userId || !profile?.org_id) return;
     getOrCreateDailyRecommendation(userId, profile.org_id, new Date()).then(setPilotRecommendation);
   }, [userId, profile?.org_id]);
+
+  useEffect(() => {
+    if (!userId) return;
+    AsyncStorage.getItem(`${PILOT_CARD_DISMISSED_KEY}_${userId}`).then((stored) => {
+      setPilotCardDismissedDate(stored ?? null);
+    });
+  }, [userId]);
 
   // Fetch scheduled transactions (future dated transactions)
   useEffect(() => {
@@ -277,10 +288,12 @@ export default function FinanceOverviewScreen() {
     
     loadData();
     
-    // Seed default categories/accounts only the first time (per profile.defaults_seeded_at).
+    // Seed default categories/accounts only the first time (profile.defaults_seeded_at or AsyncStorage).
     // If Cloud Functions are not deployed (404) or fail, fallback to client-side seed.
-    if (profile?.org_id && !profile?.defaults_seeded_at) {
+    // We use AsyncStorage to remember "already seeded" so we never PATCH profiles (avoids 400 when attribute doesn't exist).
+    if (profile?.org_id) {
       (async () => {
+        if (profile.defaults_seeded_at || (await hasDefaultsSeededForUser(userId))) return;
         let ok = false;
         try {
           await Promise.all([
@@ -297,11 +310,9 @@ export default function FinanceOverviewScreen() {
             console.log('[finance index] seedDefaultsLocally error:', localErr);
           }
         }
-        if (ok && profile?.id) {
-          try {
-            await markProfileDefaultsSeeded(profile.id);
-            await refresh();
-          } catch (_) {}
+        if (ok && userId) {
+          await setDefaultsSeededForUser(userId);
+          await refresh();
         }
       })();
     }
@@ -726,14 +737,24 @@ export default function FinanceOverviewScreen() {
   return (
     <View style={styles.wrapper}>
       <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {pilotRecommendation ? (
+        {pilotRecommendation && pilotCardDismissedDate !== pilotRecommendation.recommendation_date ? (
           <MotiView
             from={{ opacity: 0, translateY: 8 }}
             animate={{ opacity: 1, translateY: 0 }}
             transition={{ type: 'timing', duration: 400 }}
             style={styles.pilotCardWrap}
           >
-            <PilotCard recommendation={pilotRecommendation} compact />
+            <PilotCard
+              recommendation={pilotRecommendation}
+              compact
+              onClose={() => {
+                const date = pilotRecommendation.recommendation_date;
+                setPilotCardDismissedDate(date);
+                if (userId) {
+                  AsyncStorage.setItem(`${PILOT_CARD_DISMISSED_KEY}_${userId}`, date);
+                }
+              }}
+            />
           </MotiView>
         ) : null}
 

@@ -1,4 +1,5 @@
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { X } from '@tamagui/lucide-icons';
 import type { PilotDayState, PilotRecommendation } from '@/types/pilot';
 
 const STATE_LABELS: Record<PilotDayState, string> = {
@@ -18,15 +19,26 @@ const STATE_COLORS: Record<PilotDayState, { bg: string; border: string; label: s
 interface PilotCardProps {
   recommendation: PilotRecommendation;
   compact?: boolean;
+  onClose?: () => void;
 }
 
-export function PilotCard({ recommendation, compact = false }: PilotCardProps) {
+export function PilotCard({ recommendation, compact = false, onClose }: PilotCardProps) {
   const colors = STATE_COLORS[recommendation.state];
   const label = STATE_LABELS[recommendation.state];
 
   if (compact) {
     return (
       <View style={[styles.card, styles.compact, { backgroundColor: colors.bg, borderLeftColor: colors.border }]}>
+        {onClose ? (
+          <TouchableOpacity
+            style={styles.closeButton}
+            onPress={onClose}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            accessibilityLabel="Cerrar recomendación"
+          >
+            <X size={20} color="#64748b" />
+          </TouchableOpacity>
+        ) : null}
         <Text style={[styles.labelCompact, { color: colors.label }]}>{label}</Text>
         <Text style={styles.messageCompact} numberOfLines={2}>{recommendation.message_main}</Text>
         <Text style={styles.whyCompact} numberOfLines={1}>{recommendation.message_why}</Text>
@@ -39,6 +51,16 @@ export function PilotCard({ recommendation, compact = false }: PilotCardProps) {
 
   return (
     <View style={[styles.card, { backgroundColor: colors.bg, borderLeftColor: colors.border }]}>
+      {onClose ? (
+        <TouchableOpacity
+          style={styles.closeButton}
+          onPress={onClose}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          accessibilityLabel="Cerrar recomendación"
+        >
+          <X size={20} color="#64748b" />
+        </TouchableOpacity>
+      ) : null}
       <Text style={[styles.label, { color: colors.label }]}>{label}</Text>
       <Text style={styles.messageMain}>{recommendation.message_main}</Text>
       <Text style={styles.messageWhy}>{recommendation.message_why}</Text>
@@ -52,6 +74,7 @@ export function PilotCard({ recommendation, compact = false }: PilotCardProps) {
 const styles = StyleSheet.create({
   card: {
     padding: 20,
+    position: 'relative',
     borderRadius: 16,
     borderLeftWidth: 4,
     marginBottom: 16,
@@ -114,5 +137,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: '#2563eb',
+  },
+  closeButton: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    zIndex: 1,
+    padding: 4,
   },
 });
