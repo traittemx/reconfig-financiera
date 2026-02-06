@@ -31,6 +31,15 @@ export function getDayUnlocked(startDate: Date | null): number {
 }
 
 /**
+ * Calendar date when lesson N (1..23) unlocks for a user who started on startDate.
+ * Lesson 1 unlocks on start_date; each following business day unlocks the next.
+ */
+export function getUnlockDateForLesson(startDate: Date, lessonNumber: number): Date {
+  const start = startOfDay(startDate);
+  return addBusinessDays(start, lessonNumber - 1);
+}
+
+/**
  * Next business day (skip weekend).
  */
 export function nextBusinessDay(date: Date): Date {

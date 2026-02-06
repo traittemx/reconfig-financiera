@@ -1,20 +1,27 @@
 import { useEffect } from 'react';
-import { Stack, useRouter } from 'expo-router';
+import { Stack, useRouter, useSegments } from 'expo-router';
 import { useAuth } from '@/contexts/auth-context';
 
 export default function PublicLayout() {
   const router = useRouter();
+  const segments = useSegments();
   const { loading, session, canAccessApp } = useAuth();
+
+  // Get current route name within public group
+  const currentRoute = segments[1] || 'index';
 
   useEffect(() => {
     if (loading) return;
-    if (session && canAccessApp) {
+    
+    // Only redirect authenticated users to protected area
+    // BUT only if they're trying to access auth pages, not the landing
+    if (session && canAccessApp && currentRoute !== 'index') {
       router.replace('/(protected)/hoy');
     }
-  }, [loading, session, canAccessApp, router]);
+  }, [loading, session, canAccessApp, currentRoute, router]);
 
   return (
-    <Stack screenOptions={{ headerShown: false }}>
+    <Stack screenOptions={{ headerShown: false }} initialRouteName="index">
       <Stack.Screen name="index" />
       <Stack.Screen name="auth" />
       <Stack.Screen name="forgot-password" />

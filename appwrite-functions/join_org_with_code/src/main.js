@@ -8,15 +8,44 @@ const { Client, Databases, Query } = require('node-appwrite');
 
 const DATABASE_ID = process.env.APPWRITE_DATABASE_ID || 'finaria';
 
+function getQueryParams(req) {
+  if (req.query && typeof req.query === 'object') return req.query;
+  const path = req.path || '';
+  const i = path.indexOf('?');
+  if (i === -1) return {};
+  try {
+    return Object.fromEntries(new URLSearchParams(path.slice(i)));
+  } catch {
+    return {};
+  }
+}
+
 module.exports = async ({ req, res, log, error }) => {
   try {
     const userId = req.headers['x-appwrite-user-id'] || req.headers['X-Appwrite-User-Id'];
     if (!userId) {
       return res.json({ error: 'Not authenticated' }, 401);
     }
-    const body = req.bodyJson || {};
-    const pCode = typeof body.p_code === 'string' ? body.p_code.trim() : '';
-    const pFullName = typeof body.p_full_name === 'string' ? body.p_full_name.trim() : '';
+    const query = getQueryParams(req);
+    let pCode = typeof query.p_code === 'string' ? query.p_code.trim() : '';
+    let pFullName = typeof query.p_full_name === 'string' ? query.p_full_name.trim() : '';
+    if (!pCode) {
+      let body = req.bodyJson || null;
+      if (!body || typeof body !== 'object') {
+        const raw = req.bodyText || req.body || '';
+        if (typeof raw === 'string' && raw.trim()) {
+          try {
+            body = JSON.parse(raw);
+          } catch {
+            body = {};
+          }
+        } else {
+          body = {};
+        }
+      }
+      pCode = typeof body.p_code === 'string' ? body.p_code.trim() : '';
+      pFullName = typeof body.p_full_name === 'string' ? body.p_full_name.trim() : pFullName;
+    }
     if (!pCode) {
       return res.json({ error: 'CODE_INVALID:Código de vinculación inválido' }, 400);
     }
@@ -36,7 +65,30 @@ module.exports = async ({ req, res, log, error }) => {
       return res.json({ error: 'CODE_INVALID:Código de vinculación inválido' }, 400);
     }
     const orgId = orgDoc.$id;
-    const subDoc = await databases.getDocument(DATABASE_ID, 'org_subscriptions', orgId);
+    let subDoc;
+    const subData = {
+      status: 'trial',
+      seats_total: 10,
+      seats_used: 0,
+      updated_at: new Date().toISOString(),
+    };
+    const subPermissions = ['read("users")'];
+    try {
+      subDoc = await databases.getDocument(DATABASE_ID, 'org_subscriptions', orgId);
+    } catch (e) {
+      if (e.code === 404 || e.message?.includes('not found')) {
+        await databases.createDocument(
+          DATABASE_ID,
+          'org_subscriptions',
+          orgId,
+          subData,
+          subPermissions
+        );
+        subDoc = await databases.getDocument(DATABASE_ID, 'org_subscriptions', orgId);
+      } else {
+        throw e;
+      }
+    }
     const seatsUsed = subDoc.seats_used ?? 0;
     const seatsTotal = subDoc.seats_total ?? 10;
     if (seatsUsed >= seatsTotal) {

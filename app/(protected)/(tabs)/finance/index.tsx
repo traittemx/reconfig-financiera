@@ -20,7 +20,11 @@ import {
   LayoutGrid,
   ChevronLeft,
   ChevronRight,
+  ShieldCheck,
+  Clock,
+  Calendar,
 } from '@tamagui/lucide-icons';
+import { differenceInDays, isToday, isTomorrow } from 'date-fns';
 import { IncomeExpenseChart } from '@/components/finance/IncomeExpenseChart';
 import { ExpenseByCategoryChart, type CategoryExpense } from '@/components/finance/ExpenseByCategoryChart';
 import { Last3MonthsChart, type MonthStats } from '@/components/finance/Last3MonthsChart';
@@ -43,6 +47,18 @@ type LatestTransaction = {
   recurrence_interval_months?: number | null;
   recurrence_total_occurrences?: number | null;
   isRecurringInstance?: boolean;
+  is_scheduled?: boolean;
+};
+
+type ScheduledTransaction = {
+  id: string;
+  kind: string;
+  amount: number;
+  occurred_at: string;
+  note: string | null;
+  account_id: string;
+  category_id?: string | null;
+  is_scheduled: boolean;
 };
 
 type AccountRef = { id: string; name: string };
@@ -62,11 +78,15 @@ const LINK_ITEMS = [
   { label: 'Ver categorías', href: '/(tabs)/finance/categories', icon: Tag },
   { label: 'Ver presupuestos', href: '/(tabs)/finance/budgets', icon: PieChart },
   { label: 'Patrimonio Líquido', href: '/(tabs)/finance/net-worth', icon: LayoutGrid },
+  { label: 'Presupuesto Seguro y Estilo', href: '/(tabs)/finance/presupuesto-seguro-estilo', icon: ShieldCheck },
+  { label: 'Flujo de efectivo', href: '/(tabs)/finance/flujo-efectivo', icon: TrendingUp },
 ] as const;
 
 export default function FinanceOverviewScreen() {
   const router = useRouter();
-  const { profile } = useAuth();
+  const { profile, session } = useAuth();
+  // Use same userId logic as accounts.tsx for consistency
+  const userId = session?.user?.id ?? profile?.id;
   const [selectedMonth, setSelectedMonth] = useState(() => startOfMonth(new Date()));
   const [totalBalance, setTotalBalance] = useState<number>(0);
   const [monthIncome, setMonthIncome] = useState<number>(0);
@@ -79,6 +99,10 @@ export default function FinanceOverviewScreen() {
   const [last3MonthsStats, setLast3MonthsStats] = useState<MonthStats[]>([]);
   const [pilotRecommendation, setPilotRecommendation] = useState<PilotRecommendation | null>(null);
   const [savingsGoalsWithProgress, setSavingsGoalsWithProgress] = useState<SavingsGoalWithProgress[]>([]);
+  const [liquidAssetsTotal, setLiquidAssetsTotal] = useState<number>(0);
+  const [safeBudgetTotal, setSafeBudgetTotal] = useState<number>(0);
+  const [tranquilityIndex, setTranquilityIndex] = useState<number | null>(null);
+  const [scheduledTransactions, setScheduledTransactions] = useState<ScheduledTransaction[]>([]);
 
   const monthNet = monthIncome - monthExpense;
 
@@ -103,97 +127,197 @@ export default function FinanceOverviewScreen() {
   }
 
   useEffect(() => {
-    if (!profile?.id || !profile.org_id) return;
-    getOrCreateDailyRecommendation(profile.id, profile.org_id, new Date()).then(setPilotRecommendation);
-  }, [profile?.id, profile?.org_id]);
+    if (!userId || !profile?.org_id) return;
+    getOrCreateDailyRecommendation(userId, profile.org_id, new Date()).then(setPilotRecommendation);
+  }, [userId, profile?.org_id]);
+
+  // Fetch scheduled transactions (future dated transactions)
+  useEffect(() => {
+    if (!userId) return;
+    const now = new Date().toISOString();
+    (async () => {
+      const { data: scheduled } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
+        Query.equal('user_id', [userId]),
+        Query.equal('is_scheduled', [true]),
+        Query.greaterThanEqual('occurred_at', now),
+        Query.orderAsc('occurred_at'),
+        Query.limit(5),
+      ]);
+      setScheduledTransactions(
+        scheduled.map((t) => ({
+          id: t.$id ?? t.id,
+          kind: t.kind as string,
+          amount: Number(t.amount),
+          occurred_at: t.occurred_at as string,
+          note: (t.note as string) ?? null,
+          account_id: t.account_id as string,
+          category_id: (t.category_id as string) ?? null,
+          is_scheduled: true,
+        }))
+      );
+    })();
+  }, [userId, selectedMonth]);
 
   const goToNewTransaction = () => {
     router.push('/(tabs)/finance/transactions?new=1');
   };
 
+  // Helper function to calculate balance for a single account (same as accounts.tsx)
+  function calculateAccountBalance(
+    accountId: string,
+    transactions: { kind: string; amount: number; account_id: string; transfer_account_id?: string | null; is_recurring?: boolean }[],
+    openingBalance: number,
+    isCredit: boolean
+  ): number {
+    const real = transactions.filter((t) => !t.is_recurring);
+    let net = 0;
+    for (const t of real) {
+      const amt = Number(t.amount);
+      if (t.account_id === accountId) {
+        if (t.kind === 'INCOME') net += isCredit ? -amt : amt;
+        else if (t.kind === 'EXPENSE') net += isCredit ? amt : -amt;
+        else if (t.kind === 'TRANSFER') net += isCredit ? amt : -amt;
+      } else if (t.transfer_account_id === accountId && t.kind === 'TRANSFER') {
+        net += isCredit ? -amt : amt;
+      }
+    }
+    return Number(openingBalance) + net;
+  }
+
+  function isDebtAccount(type: string): boolean {
+    return type === 'CREDIT' || type === 'CREDIT_CARD';
+  }
+
   useEffect(() => {
-    if (!profile?.id || !profile.org_id) return;
-    execFunction('seed_default_categories', {
-      p_org_id: profile.org_id,
-      p_user_id: profile.id,
-    }).then(() => {});
-    const monthStart = startOfMonth(selectedMonth).toISOString();
-    const monthEnd = endOfMonth(selectedMonth).toISOString();
-    (async () => {
-      const { data: accounts } = await listDocuments<AppwriteDocument>(COLLECTIONS.accounts, [
-        Query.equal('user_id', [profile.id]),
-        Query.limit(500),
-      ]);
-      let balance = 0;
-      accounts.forEach((a) => {
-        const row = docToRow(a);
-        const bal = Number(a.opening_balance ?? 0);
-        balance += (a.type === 'CREDIT' || a.type === 'CREDIT_CARD') ? -bal : bal;
+    console.log('[finance index] useEffect triggered - userId:', userId, 'profile?.org_id:', profile?.org_id, 'session:', session?.user?.id, 'profile?.id:', profile?.id);
+    
+    if (!userId) {
+      console.log('[finance index] Skipping - no userId');
+      return;
+    }
+    
+    // Load data even without org_id (org_id only needed for seed functions)
+    const loadData = async () => {
+      try {
+        console.log('[finance index] Loading accounts for userId:', userId);
+        
+        const { data: accounts } = await listDocuments<AppwriteDocument>(COLLECTIONS.accounts, [
+          Query.equal('user_id', [userId]),
+          Query.limit(500),
+        ]);
+        
+        console.log('[finance index] Loaded accounts:', accounts.length, accounts.map(a => ({ 
+          id: (a as { $id?: string }).$id, 
+          name: a.name, 
+          type: a.type, 
+          opening_balance: a.opening_balance 
+        })));
+        
+        // Get all transactions for balance calculation
+        const { data: allTx } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
+          Query.equal('user_id', [userId]),
+          Query.limit(5000),
+        ]);
+        
+        console.log('[finance index] Loaded transactions:', allTx.length);
+        
+        const txForBalance = allTx as { kind: string; amount: number; account_id: string; transfer_account_id?: string | null; is_recurring?: boolean }[];
+        
+        // Calculate total balance using the same logic as accounts.tsx
+        let balance = 0;
+        accounts.forEach((a) => {
+          const accountId = (a as { $id?: string }).$id ?? (a as { id?: string }).id ?? '';
+          const openingBalance = Number(a.opening_balance ?? 0);
+          const accountType = a.type as string;
+          const isDebt = isDebtAccount(accountType);
+          const accountBalance = calculateAccountBalance(accountId, txForBalance, openingBalance, isDebt);
+          console.log('[finance index] Account balance:', { accountId, name: a.name, openingBalance, accountType, isDebt, accountBalance });
+          balance += isDebt ? -Math.abs(accountBalance) : accountBalance;
+        });
+        
+        console.log('[finance index] totalBalance calculated:', balance, 'accounts count:', accounts.length);
+        setTotalBalance(balance);
+      
+        // Calculate month start/end for income/expense
+        const monthStart = startOfMonth(selectedMonth).toISOString();
+        const monthEnd = endOfMonth(selectedMonth).toISOString();
+        
+        const { data: tx } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
+          Query.equal('user_id', [userId]),
+          Query.greaterThanEqual('occurred_at', monthStart),
+          Query.lessThanEqual('occurred_at', monthEnd),
+          Query.limit(1000),
+        ]);
+        const realTx = tx.filter((t) => !t.is_recurring);
+        let income = 0;
+        let expense = 0;
+        realTx.forEach((t) => {
+          const amt = Number(t.amount ?? 0);
+          if (t.kind === 'INCOME') income += amt;
+          else if (t.kind === 'EXPENSE') expense += amt;
+        });
+        const { data: recurringTemplates } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
+          Query.equal('user_id', [userId]),
+          Query.equal('is_recurring', [true]),
+          Query.limit(200),
+        ]);
+        recurringTemplates.forEach((t) => {
+          const interval = (t.recurrence_interval_months as number) ?? 1;
+          const monthlyAmt = Math.round((Number(t.amount) / interval) * 100) / 100;
+          if (t.kind === 'INCOME') income += monthlyAmt;
+          else if (t.kind === 'EXPENSE') expense += monthlyAmt;
+        });
+        setMonthIncome(income);
+        setMonthExpense(expense);
+      } catch (e) {
+        console.error('[finance index] Error loading data:', e);
+      }
+    };
+    
+    loadData();
+    
+    // Execute seed functions in background only if org_id exists
+    if (profile?.org_id) {
+      execFunction('seed_default_categories', {
+        p_org_id: profile.org_id,
+        p_user_id: userId,
+      }).catch((e) => {
+        console.log('[finance index] seed_default_categories error:', e);
       });
-      const { data: allTx } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
-        Query.equal('user_id', [profile.id]),
-        Query.limit(5000),
-      ]);
-      allTx.forEach((t) => {
-        const amt = Number(t.amount ?? 0);
-        if (t.kind === 'INCOME') balance += amt;
-        else if (t.kind === 'EXPENSE') balance -= amt;
+      
+      execFunction('seed_default_accounts', {
+        p_org_id: profile.org_id,
+        p_user_id: userId,
+      }).catch((e) => {
+        console.log('[finance index] seed_default_accounts error:', e);
       });
-      setTotalBalance(balance);
-      const { data: tx } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
-        Query.equal('user_id', [profile.id]),
-        Query.greaterThanEqual('occurred_at', monthStart),
-        Query.lessThanEqual('occurred_at', monthEnd),
-        Query.limit(1000),
-      ]);
-      const realTx = tx.filter((t) => !t.is_recurring);
-      let income = 0;
-      let expense = 0;
-      realTx.forEach((t) => {
-        const amt = Number(t.amount ?? 0);
-        if (t.kind === 'INCOME') income += amt;
-        else if (t.kind === 'EXPENSE') expense += amt;
-      });
-      const { data: recurringTemplates } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
-        Query.equal('user_id', [profile.id]),
-        Query.equal('is_recurring', [true]),
-        Query.limit(200),
-      ]);
-      recurringTemplates.forEach((t) => {
-        const interval = (t.recurrence_interval_months as number) ?? 1;
-        const monthlyAmt = Math.round((Number(t.amount) / interval) * 100) / 100;
-        if (t.kind === 'INCOME') income += monthlyAmt;
-        else if (t.kind === 'EXPENSE') expense += monthlyAmt;
-      });
-      setMonthIncome(income);
-      setMonthExpense(expense);
-    })();
-  }, [profile?.id, profile?.org_id, selectedMonth]);
+    }
+  }, [userId, profile?.org_id, selectedMonth]);
 
   const monthStartIso = startOfMonth(selectedMonth).toISOString();
   const monthEndIso = endOfMonth(selectedMonth).toISOString();
 
   useEffect(() => {
-    if (!profile?.id) return;
+    if (!userId) return;
     (async () => {
       const { data: acc } = await listDocuments<AppwriteDocument>(COLLECTIONS.accounts, [
-        Query.equal('user_id', [profile.id]),
+        Query.equal('user_id', [userId]),
         Query.limit(200),
       ]);
       setAccountsRef(acc.map((d) => ({ id: (d as { $id?: string }).$id ?? (d as { id?: string }).id ?? '', name: (d.name as string) ?? '' })));
       const { data: cat } = await listDocuments<AppwriteDocument>(COLLECTIONS.categories, [
-        Query.equal('user_id', [profile.id]),
+        Query.equal('user_id', [userId]),
         Query.limit(500),
       ]);
       setCategoriesRef(cat.map((d) => ({ id: (d as { $id?: string }).$id ?? (d as { id?: string }).id ?? '', name: (d.name as string) ?? '' })));
     })();
-  }, [profile?.id]);
+  }, [userId]);
 
   useEffect(() => {
-    if (!profile?.id) return;
+    if (!userId) return;
     (async () => {
       const { data: savingsAccounts } = await listDocuments<AppwriteDocument>(COLLECTIONS.accounts, [
-        Query.equal('user_id', [profile.id]),
+        Query.equal('user_id', [userId]),
         Query.equal('type', ['SAVINGS']),
         Query.limit(100),
       ]);
@@ -211,7 +335,7 @@ export default function FinanceOverviewScreen() {
         return;
       }
       const { data: tx } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
-        Query.equal('user_id', [profile.id]),
+        Query.equal('user_id', [userId]),
         Query.limit(5000),
       ]);
       const transactions = tx as { kind: string; amount: number; account_id: string; transfer_account_id?: string | null; is_recurring?: boolean }[];
@@ -235,14 +359,14 @@ export default function FinanceOverviewScreen() {
       });
       setSavingsGoalsWithProgress(list);
     })();
-  }, [profile?.id]);
+  }, [userId]);
 
   useEffect(() => {
-    if (!profile?.id) return;
+    if (!userId) return;
     (async () => {
       try {
         const { data: txRows } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
-          Query.equal('user_id', [profile.id]),
+          Query.equal('user_id', [userId]),
           Query.greaterThanEqual('occurred_at', monthStartIso),
           Query.lessThanEqual('occurred_at', monthEndIso),
           Query.orderDesc('occurred_at'),
@@ -265,7 +389,7 @@ export default function FinanceOverviewScreen() {
         })) as (LatestTransaction & { is_recurring?: boolean })[];
         const realRows = allInMonth.filter((r) => !r.is_recurring);
         const { data: recurringTemplates } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
-          Query.equal('user_id', [profile.id]),
+          Query.equal('user_id', [userId]),
           Query.equal('is_recurring', [true]),
           Query.limit(100),
         ]);
@@ -314,15 +438,15 @@ export default function FinanceOverviewScreen() {
         setLatestTransactions([]);
       }
     })();
-  }, [profile?.id, monthStartIso, monthEndIso, selectedMonth]);
+  }, [userId, monthStartIso, monthEndIso, selectedMonth]);
 
   useEffect(() => {
-    if (!profile?.id) return;
+    if (!userId) return;
     const monthStart = startOfMonth(selectedMonth).toISOString();
     const monthEnd = endOfMonth(selectedMonth).toISOString();
     (async () => {
       const { data: catList } = await listDocuments<AppwriteDocument>(COLLECTIONS.categories, [
-        Query.equal('user_id', [profile.id]),
+        Query.equal('user_id', [userId]),
         Query.limit(500),
       ]);
       const categoryMap: Record<string, { name: string; color?: string | null }> = {};
@@ -331,7 +455,7 @@ export default function FinanceOverviewScreen() {
         categoryMap[id] = { name: (c.name as string) ?? '', color: (c.color as string | null) ?? null };
       });
       const { data: txRows } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
-        Query.equal('user_id', [profile.id]),
+        Query.equal('user_id', [userId]),
         Query.equal('kind', ['EXPENSE']),
         Query.greaterThanEqual('occurred_at', monthStart),
         Query.lessThanEqual('occurred_at', monthEnd),
@@ -353,7 +477,7 @@ export default function FinanceOverviewScreen() {
         total += amt;
       });
       const { data: recurringExpenses } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
-        Query.equal('user_id', [profile.id]),
+        Query.equal('user_id', [userId]),
         Query.equal('kind', ['EXPENSE']),
         Query.equal('is_recurring', [true]),
         Query.limit(200),
@@ -381,18 +505,18 @@ export default function FinanceOverviewScreen() {
         .sort((a, b) => b.amount - a.amount);
       setExpenseByCategory(list);
     })();
-  }, [profile?.id, selectedMonth]);
+  }, [userId, selectedMonth]);
 
   // Presupuestos se guardan con mes fijo '0000-01' y aplican al mes seleccionado
   const BUDGET_MONTH_KEY = '0000-01';
 
   useEffect(() => {
-    if (!profile?.id) return;
+    if (!userId) return;
     const monthStart = startOfMonth(selectedMonth).toISOString();
     const monthEnd = endOfMonth(selectedMonth).toISOString();
     (async () => {
       const { data: budgetList } = await listDocuments<AppwriteDocument>(COLLECTIONS.budgets, [
-        Query.equal('user_id', [profile.id]),
+        Query.equal('user_id', [userId]),
         Query.equal('month', [BUDGET_MONTH_KEY]),
         Query.orderDesc('$createdAt'),
         Query.limit(1),
@@ -412,7 +536,7 @@ export default function FinanceOverviewScreen() {
         return;
       }
       const { data: catList } = await listDocuments<AppwriteDocument>(COLLECTIONS.categories, [
-        Query.equal('user_id', [profile.id]),
+        Query.equal('user_id', [userId]),
         Query.limit(500),
       ]);
       const categoryNames: Record<string, string> = {};
@@ -421,7 +545,7 @@ export default function FinanceOverviewScreen() {
         categoryNames[id] = (c.name as string) ?? 'Categoría';
       });
       const { data: txData } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
-        Query.equal('user_id', [profile.id]),
+        Query.equal('user_id', [userId]),
         Query.equal('kind', ['EXPENSE']),
         Query.greaterThanEqual('occurred_at', monthStart),
         Query.lessThanEqual('occurred_at', monthEnd),
@@ -435,7 +559,7 @@ export default function FinanceOverviewScreen() {
         spentByCategory[cid] = (spentByCategory[cid] ?? 0) + amt;
       });
       const { data: recurringExpenses } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
-        Query.equal('user_id', [profile.id]),
+        Query.equal('user_id', [userId]),
         Query.equal('kind', ['EXPENSE']),
         Query.equal('is_recurring', [true]),
         Query.limit(200),
@@ -462,16 +586,16 @@ export default function FinanceOverviewScreen() {
       });
       setBudgetRemaining(list);
     })();
-  }, [profile?.id, selectedMonth]);
+  }, [userId, selectedMonth]);
 
   // Estadísticas de ingresos y gastos de los últimos 3 meses (relativo al mes seleccionado)
   useEffect(() => {
-    if (!profile?.id) return;
+    if (!userId) return;
     const rangeStart = startOfMonth(subMonths(selectedMonth, 2)).toISOString();
     const rangeEnd = endOfMonth(selectedMonth).toISOString();
     (async () => {
       const { data: tx } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
-        Query.equal('user_id', [profile.id]),
+        Query.equal('user_id', [userId]),
         Query.greaterThanEqual('occurred_at', rangeStart),
         Query.lessThanEqual('occurred_at', rangeEnd),
         Query.limit(2000),
@@ -491,7 +615,7 @@ export default function FinanceOverviewScreen() {
         else if (t.kind === 'EXPENSE') byMonth[key].expense += amt;
       });
       const { data: recurringTemplates } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
-        Query.equal('user_id', [profile.id]),
+        Query.equal('user_id', [userId]),
         Query.equal('is_recurring', [true]),
         Query.limit(200),
       ]);
@@ -516,7 +640,63 @@ export default function FinanceOverviewScreen() {
       }
       setLast3MonthsStats(list);
     })();
-  }, [profile?.id, selectedMonth]);
+  }, [userId, selectedMonth]);
+
+  // Cargar Patrimonio Líquido (total de physical_assets)
+  useEffect(() => {
+    if (!userId || !profile?.org_id) return;
+    (async () => {
+      try {
+        const { data: assets } = await listDocuments<AppwriteDocument>(COLLECTIONS.physical_assets, [
+          Query.equal('user_id', [userId]),
+          Query.equal('org_id', [profile.org_id]),
+          Query.limit(500),
+        ]);
+        const total = assets.reduce((sum, asset) => sum + Number(asset.amount ?? 0), 0);
+        if (__DEV__) console.log('[finance index] liquidAssetsTotal:', total, 'assets count:', assets.length);
+        setLiquidAssetsTotal(total);
+      } catch (err) {
+        console.error('[finance index] load liquid assets error:', err);
+        setLiquidAssetsTotal(0);
+      }
+    })();
+  }, [userId, profile?.org_id]);
+
+  // Cargar Presupuesto Seguro del mes actual
+  useEffect(() => {
+    if (!userId || !profile?.org_id) return;
+    const monthKey = format(selectedMonth, 'yyyy-MM');
+    (async () => {
+      try {
+        const { data: expenses } = await listDocuments<AppwriteDocument>(COLLECTIONS.budget_safe_style_expenses, [
+          Query.equal('user_id', [userId]),
+          Query.equal('org_id', [profile.org_id]),
+          Query.equal('month', [monthKey]),
+          Query.equal('budget_type', ['SEGURO']),
+          Query.limit(500),
+        ]);
+        const total = expenses.reduce((sum, expense) => sum + Number(expense.amount ?? 0), 0);
+        if (__DEV__) console.log('[finance index] safeBudgetTotal:', total, 'month:', monthKey, 'expenses count:', expenses.length);
+        setSafeBudgetTotal(total);
+      } catch (err) {
+        console.error('[finance index] load safe budget error:', err);
+        setSafeBudgetTotal(0);
+      }
+    })();
+  }, [userId, profile?.org_id, selectedMonth]);
+
+  // Calcular Índice de Tranquilidad Financiera
+  useEffect(() => {
+    if (liquidAssetsTotal > 0 && safeBudgetTotal > 0) {
+      const index = liquidAssetsTotal / safeBudgetTotal;
+      const roundedIndex = Math.round(index * 10) / 10;
+      if (__DEV__) console.log('[finance index] tranquilityIndex calculated:', roundedIndex, 'from', liquidAssetsTotal, '/', safeBudgetTotal);
+      setTranquilityIndex(roundedIndex);
+    } else {
+      if (__DEV__) console.log('[finance index] tranquilityIndex null - liquidAssetsTotal:', liquidAssetsTotal, 'safeBudgetTotal:', safeBudgetTotal);
+      setTranquilityIndex(null);
+    }
+  }, [liquidAssetsTotal, safeBudgetTotal]);
 
   const kindLabel = (kind: string) => {
     if (kind === 'INCOME') return 'Ingreso';
@@ -543,6 +723,82 @@ export default function FinanceOverviewScreen() {
             <PilotCard recommendation={pilotRecommendation} compact />
           </MotiView>
         ) : null}
+
+        {/* Scheduled Transactions Section */}
+        {scheduledTransactions.length > 0 && (
+          <MotiView
+            from={{ opacity: 0, translateY: 8 }}
+            animate={{ opacity: 1, translateY: 0 }}
+            transition={{ type: 'timing', duration: 400, delay: 50 }}
+            style={styles.scheduledSection}
+          >
+            <View style={styles.scheduledHeader}>
+              <Clock size={18} color="#7c3aed" />
+              <Text style={styles.scheduledTitle}>Gastos Programados</Text>
+            </View>
+            {scheduledTransactions.map((tx, index) => {
+              const txDate = new Date(tx.occurred_at);
+              const daysUntil = differenceInDays(txDate, new Date());
+              const dateLabel = isToday(txDate)
+                ? 'Hoy'
+                : isTomorrow(txDate)
+                ? 'Mañana'
+                : `En ${daysUntil} días`;
+              const accountName = accountsRef.find((a) => a.id === tx.account_id)?.name ?? '';
+              const categoryName = tx.category_id
+                ? (categoriesRef.find((c) => c.id === tx.category_id)?.name ?? '')
+                : '';
+              const isExpense = tx.kind === 'EXPENSE';
+              return (
+                <MotiView
+                  key={tx.id}
+                  from={{ opacity: 0, translateX: -8 }}
+                  animate={{ opacity: 1, translateX: 0 }}
+                  transition={{ type: 'timing', duration: 300, delay: 80 + index * 40 }}
+                >
+                  <TouchableOpacity
+                    style={styles.scheduledCard}
+                    onPress={() => router.push('/(tabs)/finance/transactions')}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.scheduledIconWrap, isExpense ? styles.scheduledIconRed : styles.scheduledIconGreen]}>
+                      {isExpense ? (
+                        <TrendingDown size={16} color="#dc2626" />
+                      ) : (
+                        <TrendingUp size={16} color="#16a34a" />
+                      )}
+                    </View>
+                    <View style={styles.scheduledInfo}>
+                      <Text style={styles.scheduledKind}>
+                        {tx.kind === 'EXPENSE' ? 'Gasto' : tx.kind === 'INCOME' ? 'Ingreso' : 'Transferencia'}
+                      </Text>
+                      {categoryName ? (
+                        <Text style={styles.scheduledMeta} numberOfLines={1}>
+                          {categoryName}
+                        </Text>
+                      ) : null}
+                      {accountName ? (
+                        <Text style={styles.scheduledMeta} numberOfLines={1}>
+                          {accountName}
+                        </Text>
+                      ) : null}
+                    </View>
+                    <View style={styles.scheduledRight}>
+                      <Text style={isExpense ? styles.scheduledAmountRed : styles.scheduledAmountGreen}>
+                        {isExpense ? '-' : ''}{Number(tx.amount).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}
+                      </Text>
+                      <View style={styles.scheduledBadge}>
+                        <Calendar size={12} color="#7c3aed" />
+                        <Text style={styles.scheduledBadgeText}>{dateLabel}</Text>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                </MotiView>
+              );
+            })}
+          </MotiView>
+        )}
+
         <View style={styles.monthNavWrap}>
           <TouchableOpacity
             onPress={() => setSelectedMonth((m) => subMonths(m, 1))}
@@ -754,6 +1010,74 @@ export default function FinanceOverviewScreen() {
                 <Text style={styles.budgetLinkText}>Ver y editar presupuestos</Text>
               </TouchableOpacity>
             </>
+          )}
+        </MotiView>
+
+        <Text style={styles.sectionTitle}>Índice de Tranquilidad Financiera</Text>
+        <MotiView
+          from={{ opacity: 0, scale: 0.98 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ type: 'timing', duration: 500, delay: 310 }}
+          style={styles.card}
+        >
+          {tranquilityIndex !== null && tranquilityIndex > 0 ? (
+            <>
+              <View style={styles.cardHeader}>
+                <View style={styles.iconCircle}>
+                  <ShieldCheck size={22} color="#2563eb" />
+                </View>
+                <Text style={styles.label}>Meses de tranquilidad</Text>
+              </View>
+              <Text style={styles.tranquilityIndexValue}>
+                {tranquilityIndex.toFixed(1)} {tranquilityIndex === 1 ? 'mes' : 'meses'}
+              </Text>
+              <Text style={styles.tranquilityIndexDescription}>
+                Puedes vivir {tranquilityIndex === 1 ? 'este mes' : `estos ${tranquilityIndex.toFixed(1)} meses`} si pierdes todas tus fuentes de ingreso y vendes tus bienes registrados en Patrimonio Líquido.
+              </Text>
+              <View style={styles.tranquilityIndexDetails}>
+                <Text style={styles.tranquilityIndexDetailText}>
+                  Patrimonio Líquido: {liquidAssetsTotal.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}
+                </Text>
+                <Text style={styles.tranquilityIndexDetailText}>
+                  Presupuesto Seguro: {safeBudgetTotal.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}
+                </Text>
+              </View>
+            </>
+          ) : (
+            <View style={styles.tranquilityIndexEmpty}>
+              <ShieldCheck size={32} color="#94a3b8" />
+              <Text style={styles.tranquilityIndexEmptyText}>
+                Para calcular tu Índice de Tranquilidad Financiera, primero debes llenar tu Patrimonio Líquido y tu Presupuesto Seguro y Estilo.
+              </Text>
+              {(liquidAssetsTotal > 0 || safeBudgetTotal > 0) && (
+                <View style={styles.tranquilityIndexDebug}>
+                  <Text style={styles.tranquilityIndexDebugText}>
+                    {liquidAssetsTotal > 0 ? `✓ Patrimonio Líquido: ${liquidAssetsTotal.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}` : '✗ Falta Patrimonio Líquido'}
+                  </Text>
+                  <Text style={styles.tranquilityIndexDebugText}>
+                    {safeBudgetTotal > 0 ? `✓ Presupuesto Seguro: ${safeBudgetTotal.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}` : `✗ Falta Presupuesto Seguro (mes: ${format(selectedMonth, 'yyyy-MM')})`}
+                  </Text>
+                </View>
+              )}
+              <View style={styles.tranquilityIndexEmptyActions}>
+                <TouchableOpacity
+                  style={styles.tranquilityIndexEmptyButton}
+                  onPress={() => router.push('/(tabs)/finance/net-worth')}
+                  activeOpacity={0.7}
+                >
+                  <LayoutGrid size={18} color="#2563eb" />
+                  <Text style={styles.tranquilityIndexEmptyButtonText}>Patrimonio Líquido</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.tranquilityIndexEmptyButton}
+                  onPress={() => router.push('/(tabs)/finance/presupuesto-seguro-estilo')}
+                  activeOpacity={0.7}
+                >
+                  <ShieldCheck size={18} color="#2563eb" />
+                  <Text style={styles.tranquilityIndexEmptyButtonText}>Presupuesto Seguro</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
           )}
         </MotiView>
 
@@ -1089,5 +1413,161 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.35,
     shadowRadius: 8,
     elevation: 6,
+  },
+  tranquilityIndexValue: {
+    fontSize: 32,
+    fontWeight: '800',
+    color: '#2563eb',
+    marginTop: 8,
+    marginBottom: 12,
+  },
+  tranquilityIndexDescription: {
+    fontSize: 14,
+    color: '#64748b',
+    lineHeight: 20,
+    marginBottom: 16,
+  },
+  tranquilityIndexDetails: {
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#f1f5f9',
+    gap: 6,
+  },
+  tranquilityIndexDetailText: {
+    fontSize: 13,
+    color: '#94a3b8',
+  },
+  tranquilityIndexEmpty: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 24,
+    paddingHorizontal: 16,
+  },
+  tranquilityIndexEmptyText: {
+    fontSize: 14,
+    color: '#64748b',
+    textAlign: 'center',
+    marginTop: 12,
+    marginBottom: 20,
+    lineHeight: 20,
+  },
+  tranquilityIndexDebug: {
+    width: '100%',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: '#f8fafc',
+    borderRadius: 8,
+    marginBottom: 16,
+    gap: 6,
+  },
+  tranquilityIndexDebugText: {
+    fontSize: 12,
+    color: '#64748b',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  tranquilityIndexEmptyActions: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  tranquilityIndexEmptyButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    backgroundColor: '#eff6ff',
+    borderWidth: 1,
+    borderColor: '#dbeafe',
+  },
+  tranquilityIndexEmptyButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#2563eb',
+  },
+  // Scheduled Transactions Styles
+  scheduledSection: {
+    backgroundColor: '#faf5ff',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#e9d5ff',
+  },
+  scheduledHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  scheduledTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#7c3aed',
+  },
+  scheduledCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  scheduledIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  scheduledIconRed: { backgroundColor: '#fee2e2' },
+  scheduledIconGreen: { backgroundColor: '#dcfce7' },
+  scheduledInfo: { flex: 1 },
+  scheduledKind: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#0f172a',
+  },
+  scheduledMeta: {
+    fontSize: 12,
+    color: '#64748b',
+    marginTop: 2,
+  },
+  scheduledRight: {
+    alignItems: 'flex-end',
+    gap: 4,
+  },
+  scheduledAmountRed: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#dc2626',
+  },
+  scheduledAmountGreen: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#16a34a',
+  },
+  scheduledBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#f3e8ff',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  scheduledBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#7c3aed',
   },
 });

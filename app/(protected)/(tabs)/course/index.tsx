@@ -1,25 +1,28 @@
 import { useEffect, useState } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, ActivityIndicator, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Lock, CirclePlay, CheckCircle2 } from '@tamagui/lucide-icons';
+import { Lock, CirclePlay, CheckCircle2, Play } from '@tamagui/lucide-icons';
+import * as Haptics from 'expo-haptics';
 import { useAuth } from '@/contexts/auth-context';
 import { getDayUnlocked } from '@/lib/business-days';
-import { listDocuments, COLLECTIONS, Query, type AppwriteDocument } from '@/lib/appwrite';
+import { listDocuments, updateDocument, COLLECTIONS, Query, type AppwriteDocument } from '@/lib/appwrite';
+import { requestNotificationPermissions, scheduleLessonReminders } from '@/lib/notifications';
 
 type Lesson = { day: number; title: string; summary: string | null };
 type Progress = { day: number; completed_at: string | null };
 
 const COLORS = {
-  locked: { bg: '#f8fafc', border: '#e2e8f0', text: '#64748b', icon: '#94a3b8' },
-  unlocked: { bg: '#ecfdf5', border: '#a7f3d0', accent: '#059669', text: '#047857', badgeBg: '#059669' },
-  completed: { bg: '#f0fdf4', border: '#bbf7d0', accent: '#16a34a', text: '#15803d', badgeBg: '#16a34a' },
+  locked: { bg: '#fafbfc', border: '#e8ecf0', text: '#6b7280', icon: '#9ca3af' },
+  unlocked: { bg: '#f0fdf9', border: '#99d6c4', accent: '#0d9488', text: '#0f766e', badgeBg: '#0d9488' },
+  completed: { bg: '#f0fdf4', border: '#86efac', accent: '#22c55e', text: '#15803d', badgeBg: '#22c55e' },
 } as const;
 
 export default function CourseListScreen() {
   const router = useRouter();
-  const { profile } = useAuth();
+  const { profile, refresh } = useAuth();
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [progress, setProgress] = useState<Record<number, string | null>>({});
+  const [starting, setStarting] = useState(false);
   const dayUnlocked = profile?.start_date
     ? getDayUnlocked(new Date(profile.start_date))
     : 0;
@@ -27,12 +30,16 @@ export default function CourseListScreen() {
   useEffect(() => {
     (async () => {
       const { data: l } = await listDocuments<AppwriteDocument>(COLLECTIONS.lessons, [
-        Query.orderAsc('day'),
         Query.limit(50),
       ]);
       if (l?.length) {
+        const sorted = [...l].sort((a, b) => {
+          const idA = parseInt((a as { $id?: string }).$id ?? '0', 10);
+          const idB = parseInt((b as { $id?: string }).$id ?? '0', 10);
+          return idA - idB;
+        });
         setLessons(
-          l.map((d) => {
+          sorted.map((d) => {
             const doc = d as AppwriteDocument;
             const day = Number(doc.day ?? doc.$id ?? 0);
             return {
@@ -58,14 +65,64 @@ export default function CourseListScreen() {
     })();
   }, [profile?.id]);
 
+  useEffect(() => {
+    if (Platform.OS === 'web' || !profile?.start_date) return;
+    scheduleLessonReminders(profile.start_date).catch(() => {});
+  }, [profile?.start_date]);
+
   function getStatus(day: number) {
     if (day > dayUnlocked) return 'locked';
     if (progress[day]) return 'completed';
     return 'unlocked';
   }
 
+  async function handleStartCourse() {
+    if (!profile?.id) return;
+    try {
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch {}
+    setStarting(true);
+    try {
+      const now = new Date().toISOString();
+      const startDateStr = now.slice(0, 10);
+      await updateDocument(COLLECTIONS.profiles, profile.id, {
+        start_date: startDateStr,
+        updated_at: now,
+      });
+      await refresh();
+      if (Platform.OS !== 'web') {
+        const granted = await requestNotificationPermissions();
+        if (granted) await scheduleLessonReminders(startDateStr);
+      }
+    } catch (e) {
+      Alert.alert(
+        'Error',
+        e instanceof Error ? e.message : 'No se pudo iniciar el curso. Intenta de nuevo.'
+      );
+    } finally {
+      setStarting(false);
+    }
+  }
+
   return (
     <View style={styles.container}>
+      {!profile?.start_date && (
+        <TouchableOpacity
+          style={[styles.startButton, starting && styles.startButtonDisabled]}
+          onPress={handleStartCourse}
+          disabled={starting}
+          activeOpacity={0.85}
+        >
+          {starting ? (
+            <ActivityIndicator color="#fff" size="small" style={styles.startButtonSpinner} />
+          ) : (
+            <Play size={22} color="#fff" style={styles.startButtonIcon} />
+          )}
+          <Text style={styles.startButtonText}>
+            {starting ? 'Iniciando...' : 'Iniciar curso'}
+          </Text>
+        </TouchableOpacity>
+      )}
       <Text style={styles.subtitle}>
         Día desbloqueado: {dayUnlocked} de 23 (solo días hábiles)
       </Text>
@@ -96,20 +153,22 @@ export default function CourseListScreen() {
               disabled={isLocked}
               activeOpacity={isLocked ? 1 : 0.7}
             >
-              <View style={styles.dayIconRow}>
-                {status === 'locked' && <Lock size={20} color={c.icon} style={styles.rowIcon} />}
-                {status === 'unlocked' && <CirclePlay size={22} color={c.accent} style={styles.rowIcon} />}
-                {status === 'completed' && <CheckCircle2 size={22} color={c.accent} style={styles.rowIcon} />}
-                <Text style={[styles.day, status !== 'locked' && { color: c.text }]}>Día {item.day}</Text>
+              <View style={styles.rowHeader}>
+                <View style={styles.dayIconRow}>
+                  {status === 'locked' && <Lock size={20} color={c.icon} style={styles.rowIcon} />}
+                  {status === 'unlocked' && <CirclePlay size={22} color={c.accent} style={styles.rowIcon} />}
+                  {status === 'completed' && <CheckCircle2 size={22} color={c.accent} style={styles.rowIcon} />}
+                  <Text style={[styles.day, status !== 'locked' && { color: c.text }]}>Día {item.day}</Text>
+                </View>
+                <View style={[styles.badge, status !== 'locked' && { backgroundColor: c.badgeBg }]}>
+                  <Text style={[styles.badgeText, status === 'locked' && styles.badgeTextMuted]}>
+                    {status === 'completed' ? 'Completada' : status === 'unlocked' ? 'Disponible' : 'Bloqueado'}
+                  </Text>
+                </View>
               </View>
-              <Text style={[styles.title, status !== 'locked' && { color: '#0f172a' }]} numberOfLines={1}>
+              <Text style={[styles.title, status !== 'locked' && { color: '#0f172a' }]}>
                 {item.title}
               </Text>
-              <View style={[styles.badge, status !== 'locked' && { backgroundColor: c.badgeBg }]}>
-                <Text style={[styles.badgeText, status === 'locked' && styles.badgeTextMuted]}>
-                  {status === 'completed' ? 'Completada' : status === 'unlocked' ? 'Disponible' : 'Bloqueado'}
-                </Text>
-              </View>
             </TouchableOpacity>
           );
         }}
@@ -120,32 +179,65 @@ export default function CourseListScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: '#f1f5f9' },
-  subtitle: { marginBottom: 16, color: '#475569', fontSize: 14 },
-  listContent: { paddingBottom: 24 },
-  empty: { flex: 1, justifyContent: 'center', padding: 24, alignItems: 'center' },
-  emptyText: { fontSize: 16, color: '#666' },
-  row: {
+  container: { flex: 1, padding: 20, backgroundColor: '#f8fafc' },
+  startButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
-    marginBottom: 10,
-    borderRadius: 12,
-    borderLeftWidth: 4,
-    gap: 12,
-    minHeight: 64,
+    justifyContent: 'center',
+    backgroundColor: '#0d9488',
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 14,
+    marginBottom: 20,
+    gap: 10,
+    shadowColor: '#0d9488',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  rowLocked: { opacity: 0.85 },
-  rowIcon: { marginRight: 4 },
-  dayIconRow: { flexDirection: 'row', alignItems: 'center', width: 72 },
-  day: { fontWeight: '700', fontSize: 15, color: '#64748b' },
-  title: { flex: 1, fontSize: 15, color: '#475569' },
+  startButtonDisabled: { opacity: 0.8 },
+  startButtonIcon: { marginRight: 0 },
+  startButtonSpinner: { marginRight: 0 },
+  startButtonText: { color: '#fff', fontSize: 17, fontWeight: '700' },
+  subtitle: { marginBottom: 20, color: '#64748b', fontSize: 14, fontWeight: '500' },
+  listContent: { paddingBottom: 24 },
+  empty: { flex: 1, justifyContent: 'center', padding: 24, alignItems: 'center' },
+  emptyText: { fontSize: 16, color: '#64748b' },
+  row: {
+    flexDirection: 'column',
+    padding: 18,
+    marginBottom: 12,
+    borderRadius: 14,
+    borderLeftWidth: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  rowLocked: { opacity: 0.9 },
+  rowHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  rowIcon: { marginRight: 8 },
+  dayIconRow: { flexDirection: 'row', alignItems: 'center' },
+  day: { fontWeight: '700', fontSize: 15, color: '#6b7280' },
+  title: {
+    fontSize: 16,
+    color: '#475569',
+    lineHeight: 24,
+    letterSpacing: 0.15,
+  },
   badge: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 20,
-    backgroundColor: '#e2e8f0',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#e5e7eb',
   },
   badgeText: { fontSize: 12, fontWeight: '600', color: '#fff' },
-  badgeTextMuted: { color: '#64748b' },
+  badgeTextMuted: { color: '#6b7280' },
 });

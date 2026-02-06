@@ -71,7 +71,15 @@ async function main() {
       userId = existing.$id;
       console.log('Demo user already exists:', userId);
     } else {
-      const created = await usersApi.create(ID.unique(), DEMO_EMAIL, DEMO_PASSWORD, DEMO_FULL_NAME);
+      // usersApi.create(userId, email, phone, password, name)
+      // phone debe ser undefined o una cadena válida con '+'
+      const created = await usersApi.create(
+        ID.unique(),
+        DEMO_EMAIL,
+        undefined, // phone (opcional)
+        DEMO_PASSWORD,
+        DEMO_FULL_NAME
+      );
       userId = created.$id;
       console.log('Demo user created:', userId);
     }
@@ -114,36 +122,49 @@ async function main() {
     console.log('Demo organization created:', orgId);
   }
 
-  const memberId = `${orgId}_${userId}`;
+  const memberId = ID.unique(); // Generate unique ID instead of orgId_userId
   try {
-    await databases.getDocument(DATABASE_ID, 'org_members', memberId);
-    console.log('Org membership already exists.');
-  } catch {
-    await databases.createDocument(DATABASE_ID, 'org_members', memberId, {
-      org_id: orgId,
-      user_id: userId,
-      role_in_org: 'ORG_ADMIN',
-      status: 'active',
-      created_at: new Date().toISOString(),
-    });
-    console.log('Org membership set.');
+    // Check if membership already exists by querying
+    const memberList = await databases.listDocuments(DATABASE_ID, 'org_members', [
+      Query.equal('org_id', [orgId]),
+      Query.equal('user_id', [userId]),
+      Query.limit(1),
+    ]);
+    if (memberList.documents && memberList.documents.length > 0) {
+      console.log('Org membership already exists.');
+    } else {
+      await databases.createDocument(DATABASE_ID, 'org_members', memberId, {
+        org_id: orgId,
+        user_id: userId,
+        role_in_org: 'ORG_ADMIN',
+        status: 'active',
+        created_at: new Date().toISOString(),
+      });
+      console.log('Org membership set.');
+    }
+  } catch (e) {
+    console.error('Error with org membership:', e.message);
   }
 
   try {
     await databases.getDocument(DATABASE_ID, 'org_subscriptions', orgId);
     console.log('Org subscription already exists.');
   } catch {
-    const periodEnd = new Date();
-    periodEnd.setDate(periodEnd.getDate() + 14);
-    await databases.createDocument(DATABASE_ID, 'org_subscriptions', orgId, {
-      status: 'trial',
-      seats_total: 10,
-      seats_used: 1,
-      period_start: new Date().toISOString().slice(0, 10),
-      period_end: periodEnd.toISOString().slice(0, 10),
-      updated_at: new Date().toISOString(),
-    });
-    console.log('Org subscription created.');
+    try {
+      await databases.createDocument(DATABASE_ID, 'org_subscriptions', orgId, {
+        status: 'trial',
+        seats_total: 10,
+        seats_used: 1,
+      });
+      console.log('Org subscription created.');
+    } catch (subErr) {
+      try {
+        await databases.createDocument(DATABASE_ID, 'org_subscriptions', orgId, { status: 'trial' });
+        console.log('Org subscription created (solo status).');
+      } catch (subErr2) {
+        console.warn('No se pudo crear org_subscriptions:', subErr2.message || subErr2);
+      }
+    }
   }
 
   try {

@@ -15,6 +15,7 @@ import { MotiView } from 'moti';
 import { Button } from 'tamagui';
 import { LayoutGrid, Pencil, Plus, Trash2 } from '@tamagui/lucide-icons';
 import { useAuth } from '@/contexts/auth-context';
+import { Permission, Role } from 'react-native-appwrite';
 import { listDocuments, createDocument, updateDocument, deleteDocument, COLLECTIONS, Query, type AppwriteDocument } from '@/lib/appwrite';
 
 type PhysicalAsset = {
@@ -68,15 +69,28 @@ export default function NetWorthScreen() {
     }
     setLoading(true);
     try {
-      await createDocument(COLLECTIONS.physical_assets, {
-        user_id: profile.id,
-        org_id: profile.org_id,
-        name: name.trim(),
-        amount: num,
-      } as Record<string, unknown>);
+      const permissions = [
+        Permission.read(Role.user(profile.id)),
+        Permission.update(Role.user(profile.id)),
+        Permission.delete(Role.user(profile.id)),
+      ];
+      await createDocument(
+        COLLECTIONS.physical_assets,
+        {
+          user_id: profile.id,
+          org_id: profile.org_id,
+          name: name.trim(),
+          amount: num,
+          created_at: new Date().toISOString(),
+        } as Record<string, unknown>,
+        undefined,
+        permissions
+      );
     } catch (err) {
       setLoading(false);
-      Alert.alert('Error', err instanceof Error ? err.message : 'Error al guardar');
+      const msg = err instanceof Error ? err.message : 'Error al guardar';
+      if (__DEV__) console.error('[net-worth] create error:', err);
+      Alert.alert('Error', msg);
       return;
     }
     setLoading(false);

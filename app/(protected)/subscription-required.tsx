@@ -12,6 +12,7 @@ export default function SubscriptionRequiredScreen() {
       </Text>
       <Text style={{ textAlign: 'center', color: '#666', marginBottom: 24 }}>
         Tu período de prueba ha terminado o la suscripción no está activa. Contacta al administrador de tu empresa.
+        Si acabas de registrarte, el administrador debe dar permiso Read a Users en la colección org_subscriptions (Appwrite Console).
       </Text>
       <Button onPress={() => router.replace('/(public)/auth')}>Cerrar sesión</Button>
     </View>

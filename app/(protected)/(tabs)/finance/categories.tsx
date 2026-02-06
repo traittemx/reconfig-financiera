@@ -5,7 +5,7 @@ import { Button } from 'tamagui';
 import { TrendingDown, TrendingUp, Pencil, Trash2 } from '@tamagui/lucide-icons';
 import { useAuth } from '@/contexts/auth-context';
 import { usePoints } from '@/contexts/points-context';
-import { listDocuments, createDocument, updateDocument, deleteDocument, COLLECTIONS, Query, type AppwriteDocument } from '@/lib/appwrite';
+import { listDocuments, createDocument, updateDocument, deleteDocument, execFunction, COLLECTIONS, Query, type AppwriteDocument } from '@/lib/appwrite';
 import { awardPoints } from '@/lib/points';
 import { PointsRewardModal } from '@/components/PointsRewardModal';
 import {
@@ -38,6 +38,14 @@ export default function CategoriesScreen() {
   useEffect(() => {
     if (!profile?.id || !profile.org_id) return;
     (async () => {
+      try {
+        await Promise.all([
+          execFunction('seed_default_categories', { p_org_id: profile.org_id, p_user_id: profile.id }, false),
+          execFunction('seed_default_accounts', { p_org_id: profile.org_id, p_user_id: profile.id }, false),
+        ]);
+      } catch {
+        // Si la función no está desplegada o falla, seguimos y mostramos lo que haya
+      }
       const { data } = await listDocuments<AppwriteDocument>(COLLECTIONS.categories, [
         Query.equal('user_id', [profile.id]),
         Query.equal('kind', ['INCOME', 'EXPENSE']),
@@ -83,6 +91,7 @@ export default function CategoriesScreen() {
       is_default: false,
       icon: selectedIcon,
       color: selectedColor,
+      created_at: new Date().toISOString(),
     } as Record<string, unknown>);
     setLoading(false);
     const newId = (result as { $id?: string }).$id ?? (result as { id?: string }).id ?? '';

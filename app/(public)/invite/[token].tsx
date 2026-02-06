@@ -30,9 +30,13 @@ export default function InviteAcceptScreen() {
   } | null>(null);
   const [subscription, setSubscription] = useState<{ seats_used: number; seats_total: number } | null>(null);
   const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const isPlaceholderInvite = invite?.email?.startsWith('invite-') && invite?.email?.endsWith('@invite.temp');
+  const emailToUse = isPlaceholderInvite ? email.trim() : (invite?.email ?? '');
 
   useEffect(() => {
     if (!token) {
@@ -77,21 +81,26 @@ export default function InviteAcceptScreen() {
       Alert.alert('Error', 'Completa nombre y contraseña');
       return;
     }
+    if (isPlaceholderInvite && !email.trim()) {
+      Alert.alert('Error', 'Introduce tu email');
+      return;
+    }
     if (subscription.seats_used >= subscription.seats_total) {
       Alert.alert('Error', 'No hay plazas disponibles. Contacta al administrador.');
       return;
     }
     setLoading(true);
     try {
+      const finalEmail = emailToUse || invite.email;
       let userId: string;
       try {
         userId = ID.unique();
-        await account.create(userId, invite.email, password, fullName.trim());
-        await account.createEmailPasswordSession(invite.email, password);
+        await account.create(userId, finalEmail, password, fullName.trim());
+        await account.createEmailPasswordSession(finalEmail, password);
       } catch (authError) {
         const msg = authError instanceof Error ? authError.message : String(authError);
         if (msg.includes('already') || msg.includes('registered') || msg.includes('exists')) {
-          await account.createEmailPasswordSession(invite.email, password);
+          await account.createEmailPasswordSession(finalEmail, password);
           const user = await account.get();
           if (!user?.$id) {
             setLoading(false);
@@ -183,7 +192,18 @@ export default function InviteAcceptScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Unirte a la empresa</Text>
-      <Text style={styles.subtitle}>Email: {invite.email}</Text>
+      {!isPlaceholderInvite && <Text style={styles.subtitle}>Email: {invite.email}</Text>}
+      {isPlaceholderInvite && (
+        <TextInput
+          style={styles.input}
+          placeholder="Tu email"
+          value={email}
+          onChangeText={setEmail}
+          autoCapitalize="none"
+          keyboardType="email-address"
+          editable={!loading}
+        />
+      )}
       <TextInput
         style={styles.input}
         placeholder="Tu nombre completo"

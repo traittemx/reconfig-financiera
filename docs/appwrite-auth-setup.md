@@ -2,6 +2,26 @@
 
 La app usa **Email/Password** para login, registro y recuperación de contraseña. Sin habilitar Auth en Appwrite, el login y el signup fallarán.
 
+## CORS: añadir el origen de la app (obligatorio en producción)
+
+Si ves **"Access to fetch at '...' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header"**, el navegador bloquea las peticiones porque Appwrite no tiene registrado el dominio desde el que cargas la app.
+
+**Qué hacer:** en la consola de Appwrite, tu proyecto → pestaña **Overview** (o **Settings**) → **Platforms** → **Add platform** → elige **Web app** → en **Hostname** pon **solo el dominio**, sin `https://` ni rutas:
+
+| Dónde corre la app | Hostname a añadir |
+|-------------------|--------------------|
+| Local (desarrollo) | `localhost` |
+| EAS / Expo (preview) | `finaria.expo.app` |
+| Tu dominio propio | `tudominio.com` |
+
+Puedes añadir varias plataformas (por ejemplo `localhost` y `finaria.expo.app`) para desarrollo y producción. Sin este paso, login y cualquier llamada a la API desde el navegador fallarán por CORS.
+
+## 401 en GET /v1/account y aviso de localStorage
+
+- **GET /v1/account 401 (Unauthorized)** al cargar la app (sin haber iniciado sesión) es **normal**: la app comprueba si hay sesión con `account.get()`; si no hay sesión, Appwrite responde 401 y la app muestra la pantalla de login. No indica un fallo de configuración.
+- Si **sí** has iniciado sesión y al recargar la página sigues viendo 401 en `/v1/account`, puede ser que la sesión no se esté enviando. La app ya envía manualmente el header `X-Fallback-Cookies` (sesión en localStorage) en cada petición cuando corres en web; asegúrate de tener tu dominio (p. ej. `finaria.expo.app`) en **Platforms** en Appwrite y de que la plataforma coincida con el hostname (la app usa `window.location.hostname` automáticamente).
+- El mensaje **"Appwrite is using localStorage for session management..."** es un **aviso**: para más seguridad puedes usar un dominio propio como API endpoint. No es un error ni causa el 401.
+
 ## Pasos en Appwrite Console
 
 1. Entra a tu proyecto en [Appwrite Console](https://cloud.appwrite.io).
@@ -27,5 +47,6 @@ La app usa **Email/Password** para login, registro y recuperación de contraseñ
 
 - Comprueba que **Email/Password** está habilitado en Auth → Settings.
 - Comprueba que las variables `EXPO_PUBLIC_APPWRITE_ENDPOINT` y `EXPO_PUBLIC_APPWRITE_PROJECT_ID` están definidas (por ejemplo en `.env`).
+- **"The current user is not authorized"** o **"No se pudo cargar tu perfil"**: la sesión se crea pero la app no puede leer la colección `profiles` ni `org_subscriptions`. En Databases → finaria → cada colección → Permissions, añade el rol **Users** con **Read** (y **Create** / **Update** en `profiles`). Ver [appwrite-permissions-setup.md](./appwrite-permissions-setup.md).
 - En registro, asegúrate de que la colección `profiles` existe y tiene los atributos `full_name`, `role`, `created_at`, `updated_at` (y opcionalmente `org_id`, `start_date`, `avatar_url`).
 - Las Appwrite Functions `validate_linking_code` y `join_org_with_code` deben estar desplegadas para que el registro con código de vinculación funcione.

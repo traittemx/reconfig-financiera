@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, ScrollView, TextInput, StyleSheet, Alert, Platform, TouchableOpacity, Modal } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -11,8 +11,10 @@ import { PointsRewardModal } from '@/components/PointsRewardModal';
 import { NumericKeypad } from '@/components/finance/NumericKeypad';
 import { getDailyRecommendation } from '@/lib/pilot';
 import { Button } from 'tamagui';
-import { TrendingDown, TrendingUp, ArrowLeftRight, ChevronLeft, ChevronRight, Pencil, Trash2, AlertCircle, X, Calendar } from '@tamagui/lucide-icons';
+import { TrendingDown, TrendingUp, ArrowLeftRight, ChevronLeft, ChevronRight, Pencil, Trash2, AlertCircle, X, Calendar, Clock } from '@tamagui/lucide-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { getCategoryIcon, getCategoryColor } from '@/lib/category-icons';
+import { scheduleTransactionNotification, cancelTransactionNotifications } from '@/lib/notifications';
 import { format, startOfMonth, endOfMonth, addMonths, subMonths, differenceInMonths } from 'date-fns';
 import { es } from 'date-fns/locale';
 
@@ -47,6 +49,7 @@ type TransactionRow = {
   recurrence_interval_months?: number | null;
   recurrence_total_occurrences?: number | null;
   expense_label?: string | null;
+  is_scheduled?: boolean;
 };
 type Transaction = TransactionRow & {
   isRecurringInstance?: boolean;
@@ -113,6 +116,8 @@ export default function TransactionsScreen() {
   const [expenseLabel, setExpenseLabel] = useState<'' | 'DESEO' | 'LUJO' | 'NECESIDAD'>('');
   const [formStep, setFormStep] = useState<FormStep>('amount');
   const [occurredAt, setOccurredAt] = useState(() => new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [tempDate, setTempDate] = useState(() => new Date());
 
   useEffect(() => {
     if (newParam === '1') {
@@ -314,16 +319,7 @@ export default function TransactionsScreen() {
 
   function getNextButtonLabel(): string {
     if (!nextStep) return editingTx ? 'Guardar cambios' : 'Guardar';
-    // El botón indica el paso al que se va (qué verá el usuario en la siguiente pantalla).
-    const labels: Record<FormStep, string> = {
-      amount: 'Cuenta',
-      account: 'Cuenta',
-      transfer_dest: 'Cuenta destino',
-      category: 'Categoría',
-      label: 'Etiqueta',
-      notes: 'Notas',
-    };
-    return labels[nextStep];
+    return 'Siguiente';
   }
 
   function getRecurrenceStartDate(): Date {
@@ -357,6 +353,10 @@ export default function TransactionsScreen() {
     try {
       const amountNum = parseFloat(amount.replace(',', '.'));
       const occurredAtIso = isRecurring ? getRecurrenceStartDate().toISOString() : occurredAt.toISOString();
+      const occurredAtDate = isRecurring ? getRecurrenceStartDate() : occurredAt;
+      const now = new Date();
+      // If the date is in the future, mark as scheduled
+      const isScheduled = occurredAtDate > now;
       const payload = {
         org_id: profile.org_id,
         user_id: userId,
@@ -376,6 +376,8 @@ export default function TransactionsScreen() {
           return Number.isFinite(n) && n >= 1 ? n : null;
         })() : null,
         expense_label: kind === 'EXPENSE' ? expenseLabel : null,
+        is_scheduled: isScheduled,
+        created_at: new Date().toISOString(),
       };
       const result = await createDocument(COLLECTIONS.transactions, payload as Record<string, unknown>);
       const newId = (result as { $id?: string }).$id ?? (result as { id?: string }).id;
@@ -405,6 +407,19 @@ export default function TransactionsScreen() {
         const message = hasDoubleReward ? '¡Buen trabajo!' : kind === 'EXPENSE' ? '¡Gasto registrado!' : kind === 'INCOME' ? '¡Ingreso registrado!' : '¡Buen trabajo!';
         setRewardToShow({ points: earnedPoints, message });
       }
+      
+      // Schedule notification for scheduled transactions
+      if (isScheduled && newId) {
+        const categoryName = categoryId ? categories.find((c) => c.id === categoryId)?.name : undefined;
+        await scheduleTransactionNotification({
+          transactionId: newId,
+          kind: kind as 'EXPENSE' | 'INCOME' | 'TRANSFER',
+          amount: Math.abs(amountNum),
+          categoryName,
+          scheduledDate: occurredAtDate,
+        });
+      }
+      
       setAmount('');
       setCategoryId('');
       setTransferAccountId('');
@@ -502,6 +517,11 @@ export default function TransactionsScreen() {
     if (!profile?.id) return;
     setLoading(true);
     try {
+      // Cancel any scheduled notifications for this transaction
+      if (item.is_scheduled) {
+        await cancelTransactionNotifications(item.id);
+      }
+      
       await deleteDocument(COLLECTIONS.transactions, item.id);
       if (editingTx?.id === item.id) {
         setShowForm(false);
@@ -613,6 +633,17 @@ export default function TransactionsScreen() {
                   <View style={styles.wizardDateRow}>
                     <Calendar size={18} color="#64748b" />
                     <Text style={styles.wizardDateText}>{format(occurredAt, "EEE, d MMM yyyy h:mm a", { locale: es })}</Text>
+                    <TouchableOpacity
+                      style={styles.scheduleDateBtn}
+                      onPress={() => {
+                        setTempDate(occurredAt);
+                        setShowDatePicker(true);
+                      }}
+                      accessibilityLabel="Programar fecha"
+                    >
+                      <Clock size={14} color="#2563eb" />
+                      <Text style={styles.scheduleDateBtnText}>Programar</Text>
+                    </TouchableOpacity>
                   </View>
                   <NumericKeypad value={amount} onChange={(v) => { setValidationError(null); setAmount(v); }} />
                 </>
@@ -632,7 +663,12 @@ export default function TransactionsScreen() {
                       {accounts.map((a) => (
                         <TouchableOpacity
                           key={a.id}
-                          onPress={() => { setValidationError(null); setAccountId(a.id); }}
+                          onPress={() => {
+                            setValidationError(null);
+                            setAccountId(a.id);
+                            const idx = steps.indexOf('account');
+                            if (idx >= 0 && idx < steps.length - 1) setFormStep(steps[idx + 1]);
+                          }}
                           style={[styles.pill, accountId === a.id && styles.pillActive]}
                         >
                           <Text style={[styles.pillText, accountId === a.id && styles.pillTextActive]}>{a.name}</Text>
@@ -649,7 +685,12 @@ export default function TransactionsScreen() {
                     {accounts.filter((a) => a.id !== accountId).map((a) => (
                       <TouchableOpacity
                         key={a.id}
-                        onPress={() => { setValidationError(null); setTransferAccountId(a.id); }}
+                        onPress={() => {
+                          setValidationError(null);
+                          setTransferAccountId(a.id);
+                          const idx = steps.indexOf('transfer_dest');
+                          if (idx >= 0 && idx < steps.length - 1) setFormStep(steps[idx + 1]);
+                        }}
                         style={[styles.pill, transferAccountId === a.id && styles.pillActive]}
                       >
                         <Text style={[styles.pillText, transferAccountId === a.id && styles.pillTextActive]}>{a.name}</Text>
@@ -678,7 +719,12 @@ export default function TransactionsScreen() {
                         return (
                           <TouchableOpacity
                             key={c.id}
-                            onPress={() => { setValidationError(null); setCategoryId(c.id); }}
+                            onPress={() => {
+                              setValidationError(null);
+                              setCategoryId(c.id);
+                              const idx = steps.indexOf('category');
+                              if (idx >= 0 && idx < steps.length - 1) setFormStep(steps[idx + 1]);
+                            }}
                             style={[styles.pill, categoryId === c.id && styles.pillActive]}
                           >
                             <View style={{ marginRight: 6 }}>
@@ -699,7 +745,12 @@ export default function TransactionsScreen() {
                     {EXPENSE_LABELS.map(({ value, label }) => (
                       <TouchableOpacity
                         key={value}
-                        onPress={() => { setValidationError(null); setExpenseLabel(value); }}
+                        onPress={() => {
+                          setValidationError(null);
+                          setExpenseLabel(value);
+                          const idx = steps.indexOf('label');
+                          if (idx >= 0 && idx < steps.length - 1) setFormStep(steps[idx + 1]);
+                        }}
                         style={[styles.pill, expenseLabel === value && styles.pillActive]}
                       >
                         <Text style={[styles.pillText, expenseLabel === value && styles.pillTextActive]}>{label}</Text>
@@ -827,6 +878,95 @@ export default function TransactionsScreen() {
             </View>
           </View>
         </Modal>
+
+        {/* DateTimePicker Modal for scheduling */}
+        {showDatePicker && Platform.OS === 'web' && (
+          <Modal visible transparent animationType="fade">
+            <View style={styles.datePickerOverlay}>
+              <View style={styles.datePickerContent}>
+                <View style={styles.datePickerHeader}>
+                  <TouchableOpacity onPress={() => setShowDatePicker(false)} style={styles.datePickerBtn}>
+                    <Text style={styles.datePickerBtnCancel}>Cancelar</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.datePickerTitle}>Programar fecha</Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setOccurredAt(tempDate);
+                      setShowDatePicker(false);
+                    }}
+                    style={styles.datePickerBtn}
+                  >
+                    <Text style={styles.datePickerBtnConfirm}>Aceptar</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.webDatePickerContainer}>
+                  <input
+                    type="datetime-local"
+                    value={format(tempDate, "yyyy-MM-dd'T'HH:mm")}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                      const newDate = new Date(e.target.value);
+                      if (!isNaN(newDate.getTime())) {
+                        setTempDate(newDate);
+                      }
+                    }}
+                    style={{
+                      fontSize: 18,
+                      padding: 16,
+                      borderRadius: 12,
+                      border: '1px solid #e2e8f0',
+                      width: '100%',
+                      marginTop: 16,
+                      marginBottom: 16,
+                    }}
+                  />
+                </View>
+              </View>
+            </View>
+          </Modal>
+        )}
+        {showDatePicker && Platform.OS === 'ios' && (
+          <Modal visible transparent animationType="slide">
+            <View style={styles.datePickerOverlay}>
+              <View style={styles.datePickerContent}>
+                <View style={styles.datePickerHeader}>
+                  <TouchableOpacity onPress={() => setShowDatePicker(false)} style={styles.datePickerBtn}>
+                    <Text style={styles.datePickerBtnCancel}>Cancelar</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.datePickerTitle}>Programar fecha</Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setOccurredAt(tempDate);
+                      setShowDatePicker(false);
+                    }}
+                    style={styles.datePickerBtn}
+                  >
+                    <Text style={styles.datePickerBtnConfirm}>Aceptar</Text>
+                  </TouchableOpacity>
+                </View>
+                <DateTimePicker
+                  value={tempDate}
+                  mode="datetime"
+                  display="spinner"
+                  onChange={(_, date) => date && setTempDate(date)}
+                  locale="es"
+                />
+              </View>
+            </View>
+          </Modal>
+        )}
+        {showDatePicker && Platform.OS === 'android' && (
+          <DateTimePicker
+            value={tempDate}
+            mode="datetime"
+            display="default"
+            onChange={(event, date) => {
+              setShowDatePicker(false);
+              if (event.type === 'set' && date) {
+                setOccurredAt(date);
+              }
+            }}
+          />
+        )}
 
         <View style={styles.monthNavWrap}>
           <TouchableOpacity
@@ -1115,4 +1255,53 @@ const styles = StyleSheet.create({
   txNeg: { fontWeight: '700', color: '#dc2626', fontSize: 15 },
   txPos: { fontWeight: '700', color: '#16a34a', fontSize: 15 },
   txTransfer: { fontWeight: '700', color: '#2563eb', fontSize: 15 },
+  // Schedule date button styles
+  scheduleDateBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#eff6ff',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    marginLeft: 'auto',
+  },
+  scheduleDateBtnText: { fontSize: 12, fontWeight: '600', color: '#2563eb' },
+  // DateTimePicker modal styles
+  datePickerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...(Platform.OS === 'web' && { justifyContent: 'center' }),
+  },
+  datePickerContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingBottom: 24,
+    ...(Platform.OS === 'web' && { 
+      borderRadius: 16, 
+      width: '90%', 
+      maxWidth: 400,
+      paddingHorizontal: 20,
+    }),
+  },
+  datePickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+  },
+  datePickerTitle: { fontSize: 16, fontWeight: '600', color: '#0f172a' },
+  datePickerBtn: { paddingVertical: 8, paddingHorizontal: 4 },
+  datePickerBtnCancel: { fontSize: 16, color: '#64748b' },
+  datePickerBtnConfirm: { fontSize: 16, fontWeight: '600', color: '#2563eb' },
+  webDatePickerContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
 });

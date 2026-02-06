@@ -21,7 +21,7 @@ export function AuthIllustration({ variant }: { variant: Variant }) {
   return (
     <View style={styles.wrap}>
       <Image
-        source={require('@/assets/images/finaria-logo.png')}
+        source={require('@/assets/images/finaria-logo-dark.png')}
         style={styles.logo}
         contentFit="contain"
       />

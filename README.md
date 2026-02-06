@@ -67,7 +67,7 @@ npm run android
    - **Opción MCP** (con el agente de Cursor): configura el MCP de Appwrite siguiendo `docs/appwrite-mcp-setup.md` y pide al agente que ejecute las migraciones.
 3. **Auth**: habilita **Email/Password** en Authentication → Settings (ver `docs/appwrite-auth-setup.md`).
 4. Crea un bucket de Storage (ID `lesson-audio`) para los audios de lecciones, o ejecuta `npm run appwrite:create-bucket`.
-5. Despliega las Appwrite Functions (`validate_linking_code`, `join_org_with_code`, `seed_default_categories`, `award_points`) desde `appwrite-functions/` — ver `appwrite-functions/README.md`.
+5. Despliega las Appwrite Functions (`validate_linking_code`, `join_org_with_code`, `seed_default_categories`, `seed_default_accounts`, `award_points`) desde `appwrite-functions/` — ver `appwrite-functions/README.md`.
 6. **points_rules**: ejecuta `npm run appwrite:seed-points-rules` para crear las reglas de puntos (CREATE_EXPENSE, LESSON_COMPLETED, etc.) que usan las Functions.
 7. Opcional: ejecuta `npm run seed:demo` (con `APPWRITE_ENDPOINT`, `APPWRITE_PROJECT_ID`, `APPWRITE_API_KEY` en `.env`) para crear usuario y empresa demo.
 

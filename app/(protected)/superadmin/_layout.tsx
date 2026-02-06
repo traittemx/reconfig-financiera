@@ -28,7 +28,6 @@ export default function SuperadminLayout() {
   return (
     <Stack screenOptions={{ headerShown: true }}>
       <Stack.Screen name="index" options={{ title: 'Super Admin' }} />
-      <Stack.Screen name="organizations" options={{ title: 'Organizaciones' }} />
       <Stack.Screen name="lessons" options={{ title: 'Contenido del curso' }} />
     </Stack>
   );

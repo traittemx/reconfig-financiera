@@ -17,6 +17,15 @@ import { useAuth } from '@/contexts/auth-context';
 import { AuthIllustration } from '@/components/auth-illustration';
 import { AuthInput } from '@/components/auth-input';
 
+/** En web Alert.alert no se muestra; usamos window.alert o mensaje en pantalla. */
+function showError(title: string, message: string) {
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.alert) {
+    window.alert(`${title}\n\n${message}`);
+  } else {
+    Alert.alert(title, message);
+  }
+}
+
 export default function SignupScreen() {
   const router = useRouter();
   const { setSessionAndLoadProfile, refresh } = useAuth();
@@ -26,6 +35,7 @@ export default function SignupScreen() {
   const [linkingCode, setLinkingCode] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [signupError, setSignupError] = useState<string | null>(null);
   const [orgPreview, setOrgPreview] = useState<{ valid: boolean; org_name: string | null } | null>(null);
 
   const validateCode = useCallback(async (code: string) => {
@@ -36,26 +46,41 @@ export default function SignupScreen() {
     }
     try {
       const exec = await execFunction('validate_linking_code', { p_code: trimmed }, false);
-      const raw = exec.responseBody ?? exec.response ?? '';
-      const data = typeof raw === 'string' ? (raw ? JSON.parse(raw) : null) : raw;
-      const row = Array.isArray(data) ? data[0] : data;
-      if (row?.valid && row?.org_name) {
-        setOrgPreview({ valid: true, org_name: row.org_name });
-      } else {
-        setOrgPreview({ valid: false, org_name: null });
+      const raw = exec.responseBody ?? (exec as { response?: string }).response ?? '';
+      let data: unknown = null;
+      if (typeof raw === 'string' && raw) {
+        try {
+          data = JSON.parse(raw);
+          // Algunos entornos devuelven el body como string anidado
+          if (typeof data === 'string') data = JSON.parse(data as string);
+        } catch {
+          data = null;
+        }
+      } else if (typeof raw === 'object' && raw !== null) {
+        data = raw;
       }
+      const row = Array.isArray(data) ? data[0] : data;
+      const result = row && typeof row === 'object' && (row as { valid?: boolean }).valid === true
+        ? { valid: true as const, org_name: (row as { org_name?: string | null }).org_name ?? null }
+        : { valid: false as const, org_name: null };
+      setOrgPreview(result);
     } catch {
       setOrgPreview({ valid: false, org_name: null });
     }
   }, []);
 
   async function signUp() {
+    setSignupError(null);
     if (!fullName.trim() || !email.trim() || !password || !linkingCode.trim()) {
-      Alert.alert('Error', 'Completa todos los campos (nombre, email, contraseña y código de vinculación).');
+      const msg = 'Completa todos los campos (nombre, email, contraseña y código de vinculación).';
+      setSignupError(msg);
+      showError('Error', msg);
       return;
     }
     if (password.length < 6) {
-      Alert.alert('Error', 'La contraseña debe tener al menos 6 caracteres');
+      const msg = 'La contraseña debe tener al menos 6 caracteres';
+      setSignupError(msg);
+      showError('Error', msg);
       return;
     }
     setLoading(true);
@@ -83,22 +108,35 @@ export default function SignupScreen() {
         );
       } catch (joinErr) {
         const msg = joinErr instanceof Error ? joinErr.message : String(joinErr);
+        setSignupError(msg);
         if (msg.includes('CODE_INVALID')) {
-          Alert.alert('Código inválido', 'El código de vinculación no es correcto. Verifica el código que te dio tu empresa.');
+          showError('Código inválido', 'El código de vinculación no es correcto. Verifica el código que te dio tu empresa.');
         } else if (msg.includes('NO_SEATS')) {
-          Alert.alert('Sin plazas', 'No hay plazas disponibles en esta empresa. Contacta al administrador.');
+          showError('Sin plazas', 'No hay plazas disponibles en esta empresa. Contacta al administrador.');
         } else if (msg.includes('ALREADY_MEMBER')) {
-          Alert.alert('Ya eres miembro', 'Ya perteneces a esta empresa.');
+          showError('Ya eres miembro', 'Ya perteneces a esta empresa.');
         } else {
-          Alert.alert('Error', msg);
+          showError('Error', msg);
         }
         setLoading(false);
         return;
       }
-      await setSessionAndLoadProfile(actualUserId);
+      const result = await setSessionAndLoadProfile(actualUserId);
+      if (!result.ok) {
+        const msg =
+          result.error?.includes('not authorized') || result.error?.includes('401')
+            ? 'Revisa los permisos en Appwrite: colecciones profiles y org_subscriptions deben tener Read (y Create en profiles) para el rol Users.'
+            : result.error || 'Intenta iniciar sesión de nuevo desde la pantalla de login.';
+        setSignupError(msg);
+        showError('Cuenta creada pero no se pudo cargar el perfil', msg);
+        setLoading(false);
+        return;
+      }
       router.replace('/(protected)/hoy');
     } catch (authError) {
-      Alert.alert('Error', authError instanceof Error ? authError.message : 'No se pudo crear la cuenta.');
+      const msg = authError instanceof Error ? authError.message : 'No se pudo crear la cuenta.';
+      setSignupError(msg);
+      showError('Error', msg);
     } finally {
       setLoading(false);
     }
@@ -161,8 +199,9 @@ export default function SignupScreen() {
             placeholder="Código de vinculación"
             value={linkingCode}
             onChangeText={(t) => {
-              setLinkingCode(t.toUpperCase());
-              validateCode(t);
+              const upper = t.toUpperCase();
+              setLinkingCode(upper);
+              validateCode(upper);
             }}
             autoCapitalize="characters"
             autoCorrect={false}
@@ -171,9 +210,16 @@ export default function SignupScreen() {
           {orgPreview?.valid && orgPreview.org_name && (
             <Text style={styles.orgPreview}>Te unirás a: {orgPreview.org_name}</Text>
           )}
+          {orgPreview?.valid && !orgPreview.org_name && linkingCode.trim().length >= 4 && (
+            <Text style={styles.orgPreview}>Código válido</Text>
+          )}
           {orgPreview?.valid === false && linkingCode.trim().length >= 4 && (
             <Text style={styles.orgPreviewInvalid}>Código no reconocido</Text>
           )}
+
+          {signupError ? (
+            <Text style={styles.signupError}>{signupError}</Text>
+          ) : null}
 
           <Text style={styles.terms}>
             Al registrarte aceptas nuestros{' '}
@@ -244,6 +290,14 @@ const styles = StyleSheet.create({
   },
   orgPreview: { fontSize: 13, color: '#059669', marginTop: -8, marginBottom: 12 },
   orgPreviewInvalid: { fontSize: 13, color: '#dc2626', marginTop: -8, marginBottom: 12 },
+  signupError: {
+    fontSize: 14,
+    color: '#dc2626',
+    backgroundColor: '#fef2f2',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+  },
   terms: {
     fontSize: 13,
     color: '#6b7280',

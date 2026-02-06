@@ -1,12 +1,36 @@
-import { Client, Account, Databases, Storage, Functions, ID, Query } from 'react-native-appwrite';
+import { Client, Account, Databases, Storage, Functions, ID, Query, ExecutionMethod } from 'react-native-appwrite';
 
 const endpoint =
   process.env.EXPO_PUBLIC_APPWRITE_ENDPOINT ?? process.env.NEXT_PUBLIC_APPWRITE_ENDPOINT ?? '';
 const projectId =
   process.env.EXPO_PUBLIC_APPWRITE_PROJECT_ID ?? process.env.NEXT_PUBLIC_APPWRITE_PROJECT_ID ?? '';
 
+/** En web: hostname debe coincidir con la plataforma añadida en Appwrite (CORS/Origin). */
+const platform =
+  typeof globalThis !== 'undefined' &&
+  typeof (globalThis as { window?: { location?: { hostname?: string } } }).window?.location?.hostname === 'string'
+    ? (process.env.EXPO_PUBLIC_APPWRITE_PLATFORM ?? (globalThis as { window: { location: { hostname: string } } }).window.location.hostname)
+    : process.env.EXPO_PUBLIC_APPWRITE_PLATFORM ?? '';
+
 const client = new Client();
 client.setEndpoint(endpoint).setProject(projectId);
+if (platform) client.setPlatform(platform);
+
+/**
+ * En web, react-native-appwrite guarda X-Fallback-Cookies en localStorage pero no lo envía
+ * en peticiones siguientes (cross-origin). Enviamos el fallback manualmente para que la sesión persista.
+ */
+if (typeof globalThis !== 'undefined' && (globalThis as { window?: unknown }).window) {
+  const origCall = client.call.bind(client);
+  (client as { call: typeof origCall }).call = async (method: string, url: URL, headers: Record<string, string> = {}, params: Record<string, unknown> = {}) => {
+    const win = (globalThis as { window?: { localStorage?: Storage } }).window;
+    if (win?.localStorage) {
+      const fallback = win.localStorage.getItem('cookieFallback');
+      if (fallback) headers = { ...headers, 'X-Fallback-Cookies': fallback };
+    }
+    return origCall(method, url, headers, params);
+  };
+}
 
 export const account = new Account(client);
 export const databases = new Databases(client);
@@ -41,6 +65,10 @@ export const COLLECTIONS = {
   pilot_daily_recommendations: 'pilot_daily_recommendations',
   pilot_emotional_checkins: 'pilot_emotional_checkins',
   org_pilot_aggregates: 'org_pilot_aggregates',
+  budget_safe_style_expenses: 'budget_safe_style_expenses',
+  financial_personality_results: 'financial_personality_results',
+  financial_archetype_results: 'financial_archetype_results',
+  cash_flow_income: 'cash_flow_income',
 } as const;
 
 /** Storage bucket for lesson audio. */
@@ -102,14 +130,29 @@ export async function deleteDocument(collectionId: string, documentId: string) {
 /**
  * Execute an Appwrite Function by ID. Pass payload as object.
  * Set async to false to wait for response; response is in execution.responseBody (string).
+ * Appwrite Cloud rechaza body en la ejecución, así que pasamos el payload por query params (GET).
  */
 export async function execFunction(
   functionId: string,
   payload?: Record<string, unknown>,
   async = true
 ) {
-  const body = payload ? JSON.stringify(payload) : undefined;
-  return functions.createExecution(functionId, body, async);
+  if (!payload || Object.keys(payload).length === 0) {
+    return functions.createExecution(functionId, undefined, async);
+  }
+  const search = new URLSearchParams(
+    Object.fromEntries(
+      Object.entries(payload).map(([k, v]) => [k, v != null ? String(v) : ''])
+    )
+  ).toString();
+  const path = search ? `/?${search}` : '/';
+  return functions.createExecution(
+    functionId,
+    undefined,
+    async,
+    path,
+    ExecutionMethod.GET
+  );
 }
 
 /** Appwrite document shape (SDK returns $id, $createdAt, $updatedAt, $permissions, plus attribute keys). */

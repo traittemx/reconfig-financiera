@@ -25,7 +25,7 @@ export default function SuperadminDashboardScreen() {
       >
         Contenido del curso
       </Button>
-      <Button onPress={() => router.back()} theme="gray" size="$3" style={{ marginTop: 24 }}>
+      <Button onPress={() => router.push('/course')} theme="gray" size="$3" style={{ marginTop: 24 }}>
         Volver
       </Button>
     </View>

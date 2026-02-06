@@ -49,13 +49,17 @@ Document ID = unique ID. Index: (org_id, user_id) unique.
 
 ### org_subscriptions
 Document ID = org_id (one subscription per org).  
+**Acceso:** Si `status` es `trial` y `period_end` está vacío/null, el período de prueba se considera vigente. Para limitar el trial, define `period_end` (fecha ISO). Desde la app: Superadmin → Organizaciones puedes editar status, period_end, asientos, etc.
+
 | Key | Type | Required | Notes |
 |-----|------|----------|-------|
 | status | string | yes | trial, active, past_due, canceled |
 | seats_total | integer | yes | Default 10 |
 | seats_used | integer | yes | Default 0 |
 | period_start | string | no | ISO date |
-| period_end | string | no | ISO date |
+| period_end | string | no | ISO date; si trial y vacío = trial sin fecha de fin |
+| membership_cost | float | no | Costo de la membresía |
+| notes | string | no | Notas adicionales (max 4096 chars) |
 | updated_at | datetime | yes | |
 
 ### org_invites
@@ -209,6 +213,19 @@ Document ID = composite e.g. `{org_id}_{user_id}`. Index: (org_id, user_id) uniq
 | amount | float | yes | |
 | created_at | datetime | yes | |
 
+### budget_safe_style_expenses
+| Key | Type | Required | Notes |
+|-----|------|----------|-------|
+| user_id | string | yes | |
+| org_id | string | yes | |
+| month | string | yes | YYYY-MM format |
+| category | string | yes | Main category name |
+| subcategory | string | yes | Subcategory name |
+| amount | float | yes | Expense amount |
+| budget_type | string | yes | SEGURO or ESTILO |
+| note | string | no | Optional note |
+| created_at | datetime | yes | |
+
 ### pilot_daily_recommendations
 Index: (user_id, recommendation_date) unique.  
 | Key | Type | Required | Notes |
@@ -272,8 +289,22 @@ Configure collection permissions in Appwrite to mirror RLS:
 - **org_invites**: org_admin all for own org; anon read by token for invite flow.
 - **lessons**: read for authenticated.
 - **user_lesson_progress**: user all on own; org_admin read org.
-- **accounts**, **income_sources**, **categories**, **transactions**, **budgets**, **budget_items**, **savings_goals**, **physical_assets**: user all on own (user_id); super_admin all.
+- **accounts**, **income_sources**, **categories**, **transactions**, **budgets**, **budget_items**, **savings_goals**, **physical_assets**, **budget_safe_style_expenses**: user all on own (user_id); super_admin all.
 - **points_rules**: read authenticated; super_admin write.
 - **points_events**, **points_totals**: insert/update only via Functions; read by user/org_admin as per RLS.
+
+### Colección profiles (errores 401/404)
+
+Para que el cliente pueda **crear** y **leer** su propio perfil (documentId = userId): en la consola de Appwrite, Databases → finaria → profiles → Settings → Permissions, añade al menos **Create** y **Read** para el rol "Users". Si falta permiso de creación, el signup crea el usuario en Auth pero falla al crear el documento en `profiles`; al iniciar sesión verás **404** en `profiles/documents/{userId}`. Si la sesión no se envía correctamente, verás **401**.
+
+**"The current user is not authorized to perform the requested action"**: suele deberse a permisos de colección. Guía paso a paso: [appwrite-permissions-setup.md](./appwrite-permissions-setup.md).
+
+## Verificación de conexión
+
+```bash
+node scripts/verify-appwrite-connection.js
+```
+
+Requiere en `.env`: `EXPO_PUBLIC_APPWRITE_ENDPOINT`, `EXPO_PUBLIC_APPWRITE_PROJECT_ID` y opcionalmente `APPWRITE_API_KEY` para probar la base de datos y la colección profiles.
 
 Where “super_admin” or “org_admin” cannot be expressed with simple role/user permissions, enforce in Appwrite Functions and call them from the client.

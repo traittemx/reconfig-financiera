@@ -51,6 +51,22 @@ export default function TabsLayout() {
         name="index"
         options={{ href: null }}
       />
+      <Tabs.Screen
+        name="financial-personality-quiz"
+        options={{ href: null, headerShown: true, title: 'Quiz Personalidad Financiera' }}
+      />
+      <Tabs.Screen
+        name="financial-personality-results"
+        options={{ href: null, headerShown: true, title: 'Tu Personalidad Financiera' }}
+      />
+      <Tabs.Screen
+        name="financial-archetype-quiz"
+        options={{ href: null, headerShown: true, title: 'Quiz Arquetipo Financiero' }}
+      />
+      <Tabs.Screen
+        name="financial-archetype-results"
+        options={{ href: null, headerShown: true, title: 'Tu Arquetipo Financiero' }}
+      />
     </Tabs>
   );
 }

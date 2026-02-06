@@ -40,7 +40,9 @@ export function isSubscriptionValid(
   periodEnd: string | null
 ): boolean {
   if (status === 'active') return true;
-  if (status === 'trial' && periodEnd) {
+  if (status === 'trial') {
+    // Sin period_end = trial sin fecha de fin (válido). Con period_end = válido si no ha vencido.
+    if (!periodEnd) return true;
     return new Date(periodEnd) >= new Date();
   }
   return false;
@@ -64,4 +66,15 @@ export interface SavingsGoalWithProgress {
   currentBalance: number;
   progressPct: number;
   goalId: string;
+}
+
+export interface FinancialPersonalityResult {
+  id: string;
+  user_id: string;
+  org_id: string;
+  dominant_personality: 'analitico' | 'impulsivo' | 'temeroso' | 'derrochador';
+  secondary_personality: 'analitico' | 'impulsivo' | 'temeroso' | 'derrochador' | null;
+  scores: string; // JSON stringified
+  completed_at: string;
+  created_at: string;
 }

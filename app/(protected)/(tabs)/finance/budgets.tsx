@@ -139,6 +139,7 @@ export default function BudgetsScreen() {
         user_id: profile.id,
         month: FIXED_BUDGET_MONTH,
         name: 'Presupuesto',
+        created_at: new Date().toISOString(),
       } as Record<string, unknown>);
       budgetId = (result as { $id?: string }).$id ?? (result as { id?: string }).id ?? null;
     }
@@ -162,6 +163,7 @@ export default function BudgetsScreen() {
           budget_id: budgetId,
           category_id: categoryId,
           limit_amount: amount,
+          created_at: new Date().toISOString(),
         } as Record<string, unknown>);
         const pointsAwarded = await awardPoints(profile.org_id, profile.id, 'CREATE_BUDGET', 'budgets', budgetId);
         if (pointsAwarded > 0) {

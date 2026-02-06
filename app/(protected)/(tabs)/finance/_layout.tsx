@@ -37,6 +37,8 @@ export default function FinanceLayout() {
       <Stack.Screen name="budgets" options={{ title: 'Presupuestos', ...backHeaderOptions }} />
       <Stack.Screen name="categories" options={{ title: 'Categorías', ...backHeaderOptions }} />
       <Stack.Screen name="net-worth" options={{ title: 'Patrimonio Líquido', ...backHeaderOptions }} />
+      <Stack.Screen name="presupuesto-seguro-estilo" options={{ title: 'Presupuesto Seguro y Estilo', ...backHeaderOptions }} />
+      <Stack.Screen name="flujo-efectivo" options={{ title: 'Flujo de efectivo', ...backHeaderOptions }} />
     </Stack>
   );
 }

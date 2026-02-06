@@ -1,0 +1,12 @@
+{
+  "name": "seed_default_accounts",
+  "version": "1.0.0",
+  "description": "Appwrite Function: seed default account (Efectivo) for org/user",
+  "main": "src/main.js",
+  "scripts": {
+    "build": "echo 'No build step'"
+  },
+  "dependencies": {
+    "node-appwrite": "^11.0.0"
+  }
+}

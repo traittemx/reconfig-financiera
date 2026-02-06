@@ -3,7 +3,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   account,
   getDocument,
+  createDocument,
+  listDocuments,
   COLLECTIONS,
+  Query,
   docToRow,
   type AppwriteDocument,
 } from '@/lib/appwrite';
@@ -95,6 +98,45 @@ function mapSubscriptionDoc(doc: AppwriteDocument): OrgSubscription {
   };
 }
 
+/**
+ * Obtiene el perfil por userId sin provocar 404: usa listDocuments (200 + lista vacía)
+ * en lugar de getDocument (404 cuando no existe).
+ */
+async function getProfileByUserId(userId: string): Promise<AppwriteDocument | null> {
+  const { data, total } = await listDocuments<AppwriteDocument>(COLLECTIONS.profiles, [
+    Query.equal('$id', [userId]),
+    Query.limit(1),
+  ]);
+  if (total === 0 || !data?.[0]) return null;
+  return data[0];
+}
+
+/** Si el usuario tiene sesión pero no tiene documento en profiles, intenta crear uno mínimo. */
+async function tryCreateMinimalProfile(userId: string): Promise<Profile | null> {
+  try {
+    const user = await account.get();
+    const name = (user as { name?: string }).name ?? (user as { email?: string }).email ?? 'Usuario';
+    const now = new Date().toISOString();
+    await createDocument(
+      COLLECTIONS.profiles,
+      {
+        full_name: name,
+        role: 'EMPLOYEE',
+        created_at: now,
+        updated_at: now,
+      },
+      userId
+    );
+    const doc = await getProfileByUserId(userId);
+    if (!doc) return null;
+    const profileData = docToRow(doc) as unknown as Profile;
+    if (!profileData.id) profileData.id = userId;
+    return profileData;
+  } catch {
+    return null;
+  }
+}
+
 interface AuthState {
   session: AppwriteAuthSession | null;
   profile: Profile | null;
@@ -102,8 +144,8 @@ interface AuthState {
   loading: boolean;
   canAccessApp: boolean;
   refresh: () => Promise<void>;
-  /** After login/signup: pass user id and load profile/subscription. Returns true if profile loaded. */
-  setSessionAndLoadProfile: (userId: string) => Promise<boolean>;
+  /** After login/signup: pass user id and load profile/subscription. Returns { ok: true } or { ok: false, error?: string }. */
+  setSessionAndLoadProfile: (userId: string) => Promise<{ ok: boolean; error?: string }>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -116,7 +158,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const loadProfileAndSubscription = useCallback(async (userId: string) => {
     try {
-      const doc = await getDocument<AppwriteDocument>(COLLECTIONS.profiles, userId);
+      let doc = await getProfileByUserId(userId);
+      if (!doc) doc = (await tryCreateMinimalProfile(userId)) ? await getProfileByUserId(userId) : null;
+      if (!doc) {
+        setProfile(null);
+        setSubscription(null);
+        return;
+      }
       const profileData = docToRow(doc) as unknown as Profile;
       if (!profileData.id) profileData.id = userId;
       setProfile(profileData);
@@ -170,10 +218,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     setLoading(true);
     try {
-      const doc = await getDocument<AppwriteDocument>(COLLECTIONS.profiles, userId).catch(
-        () => null
-      );
-      const prof = doc ? (docToRow(doc) as unknown as Profile) : null;
+      let doc = await getProfileByUserId(userId);
+      let prof: Profile | null = doc ? (docToRow(doc) as unknown as Profile) : null;
+      if (!prof) {
+        prof = await tryCreateMinimalProfile(userId);
+      }
       if (prof && !prof.id) prof.id = userId;
       setProfile(prof);
       const orgId = prof?.org_id ?? null;
@@ -198,22 +247,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [loadProfileAndSubscription]);
 
-  const setSessionAndLoadProfile = useCallback(async (userId: string): Promise<boolean> => {
+  const setSessionAndLoadProfile = useCallback(async (userId: string): Promise<{ ok: boolean; error?: string }> => {
     setSession({ user: { id: userId } });
     setLoading(true);
     try {
-      const doc = await Promise.race([
-        getDocument<AppwriteDocument>(COLLECTIONS.profiles, userId),
+      let doc = await Promise.race([
+        getProfileByUserId(userId),
         delay(PROFILE_TIMEOUT_MS),
       ]).catch(() => null);
-      const prof = doc ? (docToRow(doc) as unknown as Profile) : null;
+      let prof: Profile | null = doc ? (docToRow(doc) as unknown as Profile) : null;
+      if (!prof) {
+        prof = await tryCreateMinimalProfile(userId);
+      }
       if (prof && !prof.id) prof.id = userId;
       setProfile(prof);
       const orgId = prof?.org_id ?? null;
       if (!orgId) {
         setSubscription(null);
         setLoading(false);
-        return !!prof;
+        return { ok: !!prof };
       }
       const subDoc = await getDocument<AppwriteDocument>(
         COLLECTIONS.org_subscriptions,
@@ -223,12 +275,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSubscription(subData);
       if (prof) setAuthCache(userId, prof, subData);
       setLoading(false);
-      return true;
-    } catch {
+      return { ok: true };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       setProfile(null);
       setSubscription(null);
       setLoading(false);
-      return false;
+      return { ok: false, error: message };
     }
   }, []);
 

@@ -17,6 +17,15 @@ import { useAuth } from '@/contexts/auth-context';
 import { AuthIllustration } from '@/components/auth-illustration';
 import { AuthInput } from '@/components/auth-input';
 
+/** En web Alert.alert no se muestra; usamos window.alert. */
+function showError(title: string, message: string) {
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.alert) {
+    window.alert(`${title}\n\n${message}`);
+  } else {
+    Alert.alert(title, message);
+  }
+}
+
 export default function AuthScreen() {
   const router = useRouter();
   const { setSessionAndLoadProfile } = useAuth();
@@ -27,7 +36,7 @@ export default function AuthScreen() {
 
   async function signIn() {
     if (!email.trim() || !password) {
-      Alert.alert('Campos requeridos', 'Introduce tu email y contraseña.');
+      showError('Campos requeridos', 'Introduce tu email y contraseña.');
       return;
     }
     setLoading(true);
@@ -35,22 +44,33 @@ export default function AuthScreen() {
       await account.createEmailPasswordSession(email.trim(), password);
       const user = await account.get();
       if (!user?.$id) {
-        Alert.alert('Error', 'No se recibió la sesión. Intenta de nuevo.');
+        showError('Error', 'No se recibió la sesión. Intenta de nuevo.');
         setLoading(false);
         return;
       }
-      const profileLoaded = await setSessionAndLoadProfile(user.$id);
-      if (!profileLoaded) {
-        Alert.alert(
+      const result = await setSessionAndLoadProfile(user.$id);
+      if (!result.ok) {
+        const msg = result.error ?? '';
+        const isPermission = /not authorized|401|403|permission/i.test(msg);
+        showError(
           'No se pudo cargar tu perfil',
-          'Revisa tu conexión e intenta de nuevo. Si el problema continúa, cierra la app y ábrela otra vez.'
+          isPermission
+            ? 'Faltan permisos en Appwrite. En la consola, base finaria → colecciones profiles y org_subscriptions → Permissions → rol Users con Read (y Create/Update en profiles).'
+            : `Revisa tu conexión e intenta de nuevo.${msg ? ` (${msg})` : ''}`
         );
         setLoading(false);
         return;
       }
       router.replace('/(protected)/hoy');
     } catch (e) {
-      Alert.alert('Error', e instanceof Error ? e.message : 'No se pudo iniciar sesión. Intenta de nuevo.');
+      const msg = e instanceof Error ? e.message : String(e);
+      const isInvalidCreds = /invalid|credentials|unauthorized|401|wrong|incorrect/i.test(msg) && !/not authorized to perform/i.test(msg);
+      showError(
+        'Error al iniciar sesión',
+        isInvalidCreds
+          ? 'Email o contraseña incorrectos. Verifica tus datos o usa "¿Olvidaste tu contraseña?".'
+          : msg || 'No se pudo conectar. Revisa la URL del proyecto en .env.'
+      );
     } finally {
       setLoading(false);
     }

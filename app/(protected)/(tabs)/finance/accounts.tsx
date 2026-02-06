@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { View, Text, ScrollView, TextInput, StyleSheet, Alert, Platform, TouchableOpacity, Modal } from 'react-native';
 import { useRouter } from 'expo-router';
+
+/** En web Alert.alert no se muestra; usamos window.alert. */
+function showError(title: string, message: string) {
+  if (Platform.OS === 'web' && typeof window !== 'undefined' && window.alert) {
+    window.alert(`${title}\n\n${message}`);
+  } else {
+    Alert.alert(title, message);
+  }
+}
 import { useFocusEffect } from '@react-navigation/native';
 import { MotiView } from 'moti';
 import { Button } from 'tamagui';
@@ -12,10 +21,12 @@ import {
   TrendingUp,
   Plus,
   Receipt,
+  Pencil,
+  Trash2,
 } from '@tamagui/lucide-icons';
 import { useAuth } from '@/contexts/auth-context';
 import { usePoints } from '@/contexts/points-context';
-import { listDocuments, createDocument, updateDocument, COLLECTIONS, Query, type AppwriteDocument } from '@/lib/appwrite';
+import { listDocuments, createDocument, updateDocument, deleteDocument, COLLECTIONS, Query, type AppwriteDocument } from '@/lib/appwrite';
 import { awardPoints } from '@/lib/points';
 import { PointsRewardModal } from '@/components/PointsRewardModal';
 import type { SavingsGoal } from '@/types/database';
@@ -94,6 +105,8 @@ export default function AccountsScreen() {
   const [goalModalTarget, setGoalModalTarget] = useState('');
   const [goalModalName, setGoalModalName] = useState('');
   const [goalModalSaving, setGoalModalSaving] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [editingAccount, setEditingAccount] = useState<Account | null>(null);
 
   const fetchAccountsAndTx = useCallback(async () => {
     if (!userId) {
@@ -116,12 +129,15 @@ export default function AccountsScreen() {
         type: (a.type as string) ?? '',
         currency: (a.currency as string) ?? 'MXN',
         opening_balance: Number(a.opening_balance ?? 0),
+        cut_off_day: a.cut_off_day != null ? Number(a.cut_off_day) : null,
+        payment_day: a.payment_day != null ? Number(a.payment_day) : null,
+        credit_limit: a.credit_limit != null ? Number(a.credit_limit) : null,
       })) as Account[]);
     } catch (accountsError) {
       setLoadingList(false);
       const msg = accountsError instanceof Error ? accountsError.message : 'Error al cargar cuentas';
       setFetchError(msg);
-      Alert.alert('Error al cargar cuentas', msg, [{ text: 'Entendido' }]);
+      showError('Error al cargar cuentas', msg);
       setAccounts([]);
       return;
     }
@@ -171,71 +187,227 @@ export default function AccountsScreen() {
   );
 
   async function createAccount() {
-    if (!name.trim() || !profile?.id || !profile.org_id) return;
+    setCreateError(null);
+    if (!name.trim()) {
+      const msg = 'Escribe el nombre de la cuenta.';
+      setCreateError(msg);
+      showError('Error', msg);
+      return;
+    }
+    if (!profile?.id) {
+      const msg = 'No se pudo identificar tu sesión. Cierra sesión y vuelve a entrar.';
+      setCreateError(msg);
+      showError('Error', msg);
+      return;
+    }
+    const isSuperAdminWithoutOrg = profile.role === 'SUPER_ADMIN' && !profile.org_id;
+    if (!profile.org_id && !isSuperAdminWithoutOrg) {
+      const msg =
+        'Para crear cuentas debes estar vinculado a una organización. Si te registraste sin código de vinculación, cierra sesión y crea una nueva cuenta usando el código que te dio tu empresa.';
+      setCreateError(msg);
+      showError('Error', msg);
+      return;
+    }
     const cutOff = cutOffDay.trim() ? parseInt(cutOffDay, 10) : null;
     const payment = paymentDay.trim() ? parseInt(paymentDay, 10) : null;
     if (type === 'CREDIT_CARD') {
       if (cutOff !== null && (cutOff < 1 || cutOff > 31)) {
-        Alert.alert('Error', 'El día de corte debe estar entre 1 y 31');
+        showError('Error', 'El día de corte debe estar entre 1 y 31');
         return;
       }
       if (payment !== null && (payment < 1 || payment > 31)) {
-        Alert.alert('Error', 'El día de pago debe estar entre 1 y 31');
+        showError('Error', 'El día de pago debe estar entre 1 y 31');
         return;
       }
     }
     setLoading(true);
-    const insertPayload: Record<string, unknown> = {
-      user_id: profile.id,
-      org_id: profile.org_id,
-      name: name.trim(),
-      type,
-      currency: 'MXN',
-      opening_balance: parseFloat(openingBalance || '0') || 0,
-    };
-    if (type === 'CREDIT_CARD') {
-      insertPayload.cut_off_day = cutOff ?? null;
-      insertPayload.payment_day = payment ?? null;
-      const limit = creditLimit.trim() ? parseFloat(creditLimit) : null;
-      insertPayload.credit_limit = limit != null && !Number.isNaN(limit) && limit >= 0 ? limit : null;
-    }
-    const result = await createDocument(COLLECTIONS.accounts, insertPayload as Record<string, unknown>);
-    const accountId = (result as { $id?: string }).$id ?? (result as { id?: string }).id ?? '';
-    if (!accountId) {
-      setLoading(false);
-      Alert.alert('Error', 'No se pudo crear la cuenta.');
-      return;
-    }
-    if (type === 'SAVINGS' && accountId && goalTargetAmount.trim()) {
-      const target = parseFloat(goalTargetAmount.replace(/,/g, '.'));
-      if (!Number.isNaN(target) && target > 0) {
-        try {
-          await createDocument(COLLECTIONS.savings_goals, {
-            account_id: accountId,
-            target_amount: target,
-            name: goalName.trim() || null,
-          } as Record<string, unknown>);
-        } catch (goalErr) {
-          Alert.alert('Aviso', 'Cuenta creada pero no se pudo guardar la meta: ' + (goalErr instanceof Error ? goalErr.message : ''));
+    try {
+      const now = new Date().toISOString();
+      const orgIdForAccount = profile.org_id ?? (profile.role === 'SUPER_ADMIN' ? '' : '');
+      const insertPayload: Record<string, unknown> = {
+        user_id: profile.id,
+        org_id: orgIdForAccount,
+        name: name.trim(),
+        type,
+        currency: 'MXN',
+        opening_balance: parseFloat(openingBalance || '0') || 0,
+        created_at: now,
+      };
+      if (type === 'CREDIT_CARD') {
+        insertPayload.cut_off_day = cutOff ?? null;
+        insertPayload.payment_day = payment ?? null;
+        const limit = creditLimit.trim() ? parseFloat(creditLimit) : null;
+        insertPayload.credit_limit = limit != null && !Number.isNaN(limit) && limit >= 0 ? limit : null;
+      }
+      const result = await createDocument(COLLECTIONS.accounts, insertPayload as Record<string, unknown>);
+      const accountId = (result as { $id?: string }).$id ?? (result as { id?: string }).id ?? '';
+      if (!accountId) {
+        setCreateError('No se pudo crear la cuenta.');
+        showError('Error', 'No se pudo crear la cuenta.');
+        setLoading(false);
+        return;
+      }
+      if (type === 'SAVINGS' && accountId && goalTargetAmount.trim()) {
+        const target = parseFloat(goalTargetAmount.replace(/,/g, '.'));
+        if (!Number.isNaN(target) && target > 0) {
+          try {
+            const now = new Date().toISOString();
+            await createDocument(COLLECTIONS.savings_goals, {
+              account_id: accountId,
+              target_amount: target,
+              name: goalName.trim() || null,
+              created_at: now,
+              updated_at: now,
+            } as Record<string, unknown>);
+          } catch (goalErr) {
+            showError('Aviso', 'Cuenta creada pero no se pudo guardar la meta: ' + (goalErr instanceof Error ? goalErr.message : ''));
+          }
         }
       }
+      setShowForm(false);
+      await fetchAccountsAndTx();
+      if (profile.org_id) {
+        const pointsAwarded = await awardPoints(profile.org_id, profile.id, 'CREATE_ACCOUNT', 'accounts', accountId);
+        if (pointsAwarded > 0) {
+          setRewardToShow({ points: pointsAwarded, message: '¡Cuenta agregada!' });
+        }
+      }
+      setName('');
+      setOpeningBalance('');
+      setCutOffDay('');
+      setPaymentDay('');
+      setCreditLimit('');
+      setGoalTargetAmount('');
+      setGoalName('');
+      await fetchAccountsAndTx();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'No se pudo crear la cuenta. Revisa permisos en Appwrite (colección accounts).';
+      setCreateError(msg);
+      showError('Error al crear cuenta', msg);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-    setShowForm(false);
-    await fetchAccountsAndTx();
-    const pointsAwarded = await awardPoints(profile.org_id, profile.id, 'CREATE_ACCOUNT', 'accounts', accountId);
-    if (pointsAwarded > 0) {
-      setRewardToShow({ points: pointsAwarded, message: '¡Cuenta agregada!' });
-    }
+  }
+
+  function openNewAccountForm() {
+    setEditingAccount(null);
     setName('');
+    setType('BANK');
     setOpeningBalance('');
     setCutOffDay('');
     setPaymentDay('');
     setCreditLimit('');
     setGoalTargetAmount('');
     setGoalName('');
+    setCreateError(null);
+    setShowForm(true);
+  }
+
+  function openEditAccount(account: Account) {
+    setEditingAccount(account);
+    setName(account.name);
+    setType((account.type as (typeof ACCOUNT_TYPES)[number]) || 'BANK');
+    setOpeningBalance(String(account.opening_balance));
+    setCutOffDay(account.cut_off_day != null ? String(account.cut_off_day) : '');
+    setPaymentDay(account.payment_day != null ? String(account.payment_day) : '');
+    setCreditLimit(account.credit_limit != null ? String(account.credit_limit) : '');
+    setCreateError(null);
+    setShowForm(true);
+  }
+
+  function cancelAccountForm() {
     setShowForm(false);
-    await fetchAccountsAndTx();
+    setEditingAccount(null);
+    setName('');
+    setType('BANK');
+    setOpeningBalance('');
+    setCutOffDay('');
+    setPaymentDay('');
+    setCreditLimit('');
+    setGoalTargetAmount('');
+    setGoalName('');
+    setCreateError(null);
+  }
+
+  async function updateAccount() {
+    setCreateError(null);
+    if (!editingAccount || !name.trim()) {
+      const msg = 'Escribe el nombre de la cuenta.';
+      setCreateError(msg);
+      showError('Error', msg);
+      return;
+    }
+    const cutOff = cutOffDay.trim() ? parseInt(cutOffDay, 10) : null;
+    const payment = paymentDay.trim() ? parseInt(paymentDay, 10) : null;
+    if (type === 'CREDIT_CARD') {
+      if (cutOff !== null && (cutOff < 1 || cutOff > 31)) {
+        showError('Error', 'El día de corte debe estar entre 1 y 31');
+        return;
+      }
+      if (payment !== null && (payment < 1 || payment > 31)) {
+        showError('Error', 'El día de pago debe estar entre 1 y 31');
+        return;
+      }
+    }
+    setLoading(true);
+    try {
+      const payload: Record<string, unknown> = {
+        name: name.trim(),
+        type,
+        currency: 'MXN',
+        opening_balance: parseFloat(openingBalance || '0') || 0,
+      };
+      if (type === 'CREDIT_CARD') {
+        payload.cut_off_day = cutOff ?? null;
+        payload.payment_day = payment ?? null;
+        const limit = creditLimit.trim() ? parseFloat(creditLimit) : null;
+        payload.credit_limit = limit != null && !Number.isNaN(limit) && limit >= 0 ? limit : null;
+      } else {
+        payload.cut_off_day = null;
+        payload.payment_day = null;
+        payload.credit_limit = null;
+      }
+      await updateDocument(COLLECTIONS.accounts, editingAccount.id, payload);
+      cancelAccountForm();
+      await fetchAccountsAndTx();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'No se pudo guardar la cuenta.';
+      setCreateError(msg);
+      showError('Error al guardar', msg);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function confirmDeleteAccount(account: Account) {
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && window.confirm) {
+      const ok = window.confirm(
+        `¿Eliminar la cuenta "${account.name}"? Las transacciones asociadas quedarán en el historial pero ya no estarán vinculadas a esta cuenta.`
+      );
+      if (ok) deleteAccount(account);
+    } else {
+      Alert.alert(
+        'Eliminar cuenta',
+        `¿Eliminar la cuenta "${account.name}"? Las transacciones asociadas quedarán en el historial pero ya no estarán vinculadas a esta cuenta.`,
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          { text: 'Eliminar', style: 'destructive', onPress: () => deleteAccount(account) },
+        ]
+      );
+    }
+  }
+
+  async function deleteAccount(account: Account) {
+    setLoading(true);
+    try {
+      await deleteDocument(COLLECTIONS.accounts, account.id);
+      if (editingAccount?.id === account.id) cancelAccountForm();
+      await fetchAccountsAndTx();
+    } catch (err) {
+      showError('Error', err instanceof Error ? err.message : 'No se pudo eliminar la cuenta.');
+    } finally {
+      setLoading(false);
+    }
   }
 
   function openAddGoal(accountId: string) {
@@ -255,7 +427,7 @@ export default function AccountsScreen() {
     if (!goalModalAccountId || !profile?.id) return;
     const target = parseFloat(goalModalTarget.replace(/,/g, '.'));
     if (Number.isNaN(target) || target <= 0) {
-      Alert.alert('Error', 'El monto objetivo debe ser mayor que 0');
+      showError('Error', 'El monto objetivo debe ser mayor que 0');
       return;
     }
     setGoalModalSaving(true);
@@ -269,19 +441,22 @@ export default function AccountsScreen() {
         });
       } catch (err) {
         setGoalModalSaving(false);
-        Alert.alert('Error', err instanceof Error ? err.message : 'Error al guardar');
+        showError('Error', err instanceof Error ? err.message : 'Error al guardar');
         return;
       }
     } else {
       try {
+        const now = new Date().toISOString();
         await createDocument(COLLECTIONS.savings_goals, {
           account_id: goalModalAccountId,
           target_amount: target,
           name: goalModalName.trim() || null,
+          created_at: now,
+          updated_at: now,
         } as Record<string, unknown>);
       } catch (err) {
         setGoalModalSaving(false);
-        Alert.alert('Error', err instanceof Error ? err.message : 'Error al guardar');
+        showError('Error', err instanceof Error ? err.message : 'Error al guardar');
         return;
       }
     }
@@ -308,10 +483,12 @@ export default function AccountsScreen() {
           >
             <View style={styles.formCardHeader}>
               <View>
-                <Text style={styles.formTitle}>Nueva cuenta</Text>
-                <Text style={styles.formSubtitle}>Elige el tipo, nombre y saldo inicial</Text>
+                <Text style={styles.formTitle}>{editingAccount ? 'Editar cuenta' : 'Nueva cuenta'}</Text>
+                <Text style={styles.formSubtitle}>
+                  {editingAccount ? 'Modifica los datos de la cuenta' : 'Elige el tipo, nombre y saldo inicial'}
+                </Text>
               </View>
-              <TouchableOpacity onPress={() => setShowForm(false)} style={styles.cancelButton} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+              <TouchableOpacity onPress={cancelAccountForm} style={styles.cancelButton} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
                 <Text style={styles.cancelButtonText}>Cancelar</Text>
               </TouchableOpacity>
             </View>
@@ -368,7 +545,7 @@ export default function AccountsScreen() {
               editable={!loading}
             />
 
-            {type === 'SAVINGS' && (
+            {type === 'SAVINGS' && !editingAccount && (
               <>
                 <Text style={styles.fieldLabel}>Meta de ahorro (monto objetivo, opcional)</Text>
                 <TextInput
@@ -422,15 +599,19 @@ export default function AccountsScreen() {
               </>
             )}
 
+            {createError ? (
+              <Text style={styles.createErrorText}>{createError}</Text>
+            ) : null}
+
             <Button
-              onPress={createAccount}
+              onPress={editingAccount ? updateAccount : createAccount}
               disabled={loading}
               theme="green"
               size="$4"
               width="100%"
               marginTop={8}
             >
-              {loading ? 'Guardando...' : 'Crear cuenta'}
+              {loading ? 'Guardando...' : editingAccount ? 'Guardar cambios' : 'Crear cuenta'}
             </Button>
           </MotiView>
         )}
@@ -520,6 +701,14 @@ export default function AccountsScreen() {
                     <Text style={styles.goalButtonText}>{goal ? 'Editar meta' : 'Añadir meta'}</Text>
                   </TouchableOpacity>
                 )}
+                <View style={styles.accountActions}>
+                  <TouchableOpacity onPress={() => openEditAccount(item)} style={styles.accountActionBtn} accessibilityLabel="Editar cuenta">
+                    <Pencil size={18} color="#2563eb" />
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => confirmDeleteAccount(item)} style={styles.accountActionBtn} accessibilityLabel="Eliminar cuenta">
+                    <Trash2 size={18} color="#dc2626" />
+                  </TouchableOpacity>
+                </View>
               </View>
             </MotiView>
           );
@@ -530,7 +719,7 @@ export default function AccountsScreen() {
           animate={{ opacity: 1, scale: 1 }}
           transition={{ type: 'timing', duration: 400, delay: 80 + accounts.length * 60 }}
         >
-          <TouchableOpacity style={styles.addCard} onPress={() => setShowForm(true)} activeOpacity={0.8}>
+          <TouchableOpacity style={styles.addCard} onPress={openNewAccountForm} activeOpacity={0.8}>
             <View style={styles.addCardIconWrap}>
               <Plus size={28} color="#64748b" />
             </View>
@@ -681,6 +870,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#f8fafc',
     ...(Platform.OS === 'web' && { outlineStyle: 'none' }),
   },
+  createErrorText: {
+    fontSize: 14,
+    color: '#dc2626',
+    backgroundColor: '#fef2f2',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
   totalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -728,6 +925,8 @@ const styles = StyleSheet.create({
   accountBalanceCredit: { color: '#dc2626', fontWeight: '600' },
   goalButton: { marginTop: 8, alignSelf: 'flex-start' },
   goalButtonText: { fontSize: 14, fontWeight: '600', color: '#0d9488' },
+  accountActions: { flexDirection: 'row', alignItems: 'center', marginTop: 10, gap: 8 },
+  accountActionBtn: { padding: 8 },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',

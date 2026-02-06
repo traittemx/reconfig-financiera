@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
-import { View, Text, FlatList, TextInput, StyleSheet, Alert, Platform, Pressable } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { View, Text, FlatList, TextInput, StyleSheet, Alert, Platform, Pressable, Modal } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Button } from 'tamagui';
 import * as Clipboard from 'expo-clipboard';
@@ -16,6 +16,15 @@ import {
 import { DateField } from '@/components/DateField';
 
 const SUBSCRIPTION_STATUSES = ['trial', 'active', 'past_due', 'canceled'] as const;
+
+const STATUS_LABELS: Record<string, string> = {
+  trial: 'Prueba',
+  active: 'Activo',
+  past_due: 'Vencido',
+  canceled: 'Cancelado',
+};
+
+const isWeb = Platform.OS === 'web';
 
 function generateLinkingCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -37,6 +46,8 @@ type Org = {
     seats_used: number;
     period_start: string | null;
     period_end: string | null;
+    membership_cost: number | null;
+    notes: string | null;
   } | null;
 };
 
@@ -57,7 +68,15 @@ export default function SuperadminOrganizationsScreen() {
   const [newSeatsTotal, setNewSeatsTotal] = useState('10');
   const [newPeriodStart, setNewPeriodStart] = useState('');
   const [newPeriodEnd, setNewPeriodEnd] = useState('');
+  const [newMembershipCost, setNewMembershipCost] = useState('');
+  const [newNotes, setNewNotes] = useState('');
+  const [showNewStatusPicker, setShowNewStatusPicker] = useState(false);
   const [creating, setCreating] = useState(false);
+
+  // Estados para edición
+  const [membershipCost, setMembershipCost] = useState('');
+  const [notes, setNotes] = useState('');
+  const [showEditStatusPicker, setShowEditStatusPicker] = useState(false);
 
   const loadOrgs = useCallback(async () => {
     const { data: orgList } = await listDocuments<AppwriteDocument>(COLLECTIONS.organizations, [
@@ -68,7 +87,7 @@ export default function SuperadminOrganizationsScreen() {
       setOrgs([]);
       return;
     }
-    const subMap = new Map<string, { status: string; seats_total: number; seats_used: number; period_start: string | null; period_end: string | null }>();
+    const subMap = new Map<string, { status: string; seats_total: number; seats_used: number; period_start: string | null; period_end: string | null; membership_cost: number | null; notes: string | null }>();
     for (const o of orgList) {
       const doc = o as AppwriteDocument;
       const orgId = doc.$id ?? (doc as { id?: string }).id;
@@ -80,9 +99,32 @@ export default function SuperadminOrganizationsScreen() {
           seats_used: (sub.seats_used as number) ?? 0,
           period_start: (sub.period_start as string | null) ?? null,
           period_end: (sub.period_end as string | null) ?? null,
+          membership_cost: (sub.membership_cost as number | null) ?? null,
+          notes: (sub.notes as string | null) ?? null,
         });
       } catch {
-        // no subscription
+        try {
+          await createDocument(
+            COLLECTIONS.org_subscriptions,
+            {
+              status: 'trial',
+              seats_total: 10,
+              seats_used: 0,
+            },
+            orgId
+          );
+          subMap.set(orgId, {
+            status: 'trial',
+            seats_total: 10,
+            seats_used: 0,
+            period_start: null,
+            period_end: null,
+            membership_cost: null,
+            notes: null,
+          });
+        } catch {
+          // leave as null
+        }
       }
     }
     const list: Org[] = orgList.map((o) => {
@@ -119,18 +161,26 @@ export default function SuperadminOrganizationsScreen() {
         { name, slug, created_at: now },
         orgId
       );
-      await createDocument(
-        COLLECTIONS.org_subscriptions,
-        {
-          status: newStatus,
-          seats_total: newSeatsTotal ? parseInt(newSeatsTotal, 10) : 10,
-          seats_used: 0,
-          period_start: newPeriodStart || null,
-          period_end: newPeriodEnd || null,
-          updated_at: now,
-        },
-        orgId
-      );
+      const subPayload: Record<string, unknown> = {
+        status: newStatus,
+        seats_total: newSeatsTotal ? parseInt(newSeatsTotal, 10) : 10,
+        seats_used: 0,
+      };
+      if (newPeriodStart) subPayload.period_start = newPeriodStart;
+      if (newPeriodEnd) subPayload.period_end = newPeriodEnd;
+      if (newMembershipCost) subPayload.membership_cost = parseFloat(newMembershipCost);
+      if (newNotes) subPayload.notes = newNotes;
+
+      try {
+        await createDocument(
+          COLLECTIONS.org_subscriptions,
+          subPayload,
+          orgId
+        );
+      } catch (subError) {
+        console.error('Subscription creation failed:', subError);
+        throw subError;
+      }
       const linkingCode = generateLinkingCode();
       await updateDocument(COLLECTIONS.organizations, orgId, { linking_code: linkingCode });
       Clipboard.setStringAsync(linkingCode).catch(() => {});
@@ -140,7 +190,9 @@ export default function SuperadminOrganizationsScreen() {
         [{ text: 'Entendido' }]
       );
     } catch (e) {
-      Alert.alert('Error', e instanceof Error ? e.message : 'No se pudo crear la empresa');
+      const errorMsg = e instanceof Error ? e.message : JSON.stringify(e);
+      console.error('Error creating company/subscription:', e);
+      Alert.alert('Error', errorMsg);
     }
     setCreating(false);
     setShowCreateForm(false);
@@ -150,6 +202,8 @@ export default function SuperadminOrganizationsScreen() {
     setNewSeatsTotal('10');
     setNewPeriodStart('');
     setNewPeriodEnd('');
+    setNewMembershipCost('');
+    setNewNotes('');
     await loadOrgs();
   }
 
@@ -158,12 +212,32 @@ export default function SuperadminOrganizationsScreen() {
     try {
       const payload: Record<string, unknown> = {
         status,
-        updated_at: new Date().toISOString(),
       };
       if (seatsTotal !== '') payload.seats_total = parseInt(seatsTotal, 10);
-      if (periodStart !== '') payload.period_start = periodStart || null;
-      if (periodEnd !== '') payload.period_end = periodEnd || null;
-      await updateDocument(COLLECTIONS.org_subscriptions, orgId, payload);
+      if (periodStart) payload.period_start = periodStart;
+      if (periodEnd) payload.period_end = periodEnd;
+      if (membershipCost) payload.membership_cost = parseFloat(membershipCost);
+      if (notes) payload.notes = notes;
+
+      try {
+        await updateDocument(COLLECTIONS.org_subscriptions, orgId, payload);
+      } catch {
+        const createPayload: Record<string, unknown> = {
+          status,
+          seats_total: seatsTotal ? parseInt(seatsTotal, 10) : 10,
+          seats_used: 0,
+        };
+        if (periodStart) createPayload.period_start = periodStart;
+        if (periodEnd) createPayload.period_end = periodEnd;
+        if (membershipCost) createPayload.membership_cost = parseFloat(membershipCost);
+        if (notes) createPayload.notes = notes;
+
+        await createDocument(
+          COLLECTIONS.org_subscriptions,
+          createPayload,
+          orgId
+        );
+      }
       const sub = await getDocument<AppwriteDocument>(COLLECTIONS.org_subscriptions, orgId);
       setOrgs((prev) =>
         prev.map((o) =>
@@ -176,6 +250,8 @@ export default function SuperadminOrganizationsScreen() {
                   seats_used: (sub.seats_used as number) ?? 0,
                   period_start: (sub.period_start as string | null) ?? null,
                   period_end: (sub.period_end as string | null) ?? null,
+                  membership_cost: (sub.membership_cost as number | null) ?? null,
+                  notes: (sub.notes as string | null) ?? null,
                 },
               }
             : o
@@ -194,6 +270,8 @@ export default function SuperadminOrganizationsScreen() {
     setSeatsTotal(String(org.subscription?.seats_total ?? 10));
     setPeriodStart(org.subscription?.period_start ?? '');
     setPeriodEnd(org.subscription?.period_end ?? '');
+    setMembershipCost(org.subscription?.membership_cost != null ? String(org.subscription.membership_cost) : '');
+    setNotes(org.subscription?.notes ?? '');
   }
 
   return (
@@ -223,19 +301,77 @@ export default function SuperadminOrganizationsScreen() {
             autoCapitalize="none"
             editable={!creating}
           />
-          <TextInput
-            style={styles.input}
-            placeholder="Estado: trial, active, past_due, canceled"
-            value={newStatus}
-            onChangeText={setNewStatus}
-            editable={!creating}
-          />
+          <Text style={styles.label}>Estado</Text>
+          {isWeb ? (
+            <View style={styles.selectWrapper}>
+              {React.createElement('select', {
+                value: newStatus,
+                onChange: (e: React.ChangeEvent<HTMLSelectElement>) => setNewStatus(e.target.value),
+                disabled: creating,
+                style: {
+                  width: '100%',
+                  padding: 12,
+                  fontSize: 16,
+                  borderWidth: 1,
+                  borderStyle: 'solid',
+                  borderColor: '#e5e5e5',
+                  borderRadius: 8,
+                  backgroundColor: creating ? '#f5f5f5' : '#fff',
+                  outlineStyle: 'none',
+                },
+              }, SUBSCRIPTION_STATUSES.map((s) =>
+                React.createElement('option', { key: s, value: s }, STATUS_LABELS[s])
+              ))}
+            </View>
+          ) : (
+            <>
+              <Pressable
+                style={[styles.pickerTrigger, creating && styles.pickerTriggerDisabled]}
+                onPress={() => !creating && setShowNewStatusPicker(true)}
+                disabled={creating}
+              >
+                <Text style={styles.pickerTriggerText}>{STATUS_LABELS[newStatus] || newStatus}</Text>
+              </Pressable>
+              <Modal visible={showNewStatusPicker} transparent animationType="slide">
+                <Pressable style={styles.modalOverlay} onPress={() => setShowNewStatusPicker(false)}>
+                  <View style={styles.modalContent}>
+                    <Text style={styles.modalTitle}>Seleccionar estado</Text>
+                    {SUBSCRIPTION_STATUSES.map((s) => (
+                      <Pressable
+                        key={s}
+                        style={[styles.modalOption, newStatus === s && styles.modalOptionSelected]}
+                        onPress={() => {
+                          setNewStatus(s);
+                          setShowNewStatusPicker(false);
+                        }}
+                      >
+                        <Text style={[styles.modalOptionText, newStatus === s && styles.modalOptionTextSelected]}>
+                          {STATUS_LABELS[s]}
+                        </Text>
+                      </Pressable>
+                    ))}
+                    <Pressable style={styles.modalCancel} onPress={() => setShowNewStatusPicker(false)}>
+                      <Text style={styles.modalCancelText}>Cancelar</Text>
+                    </Pressable>
+                  </View>
+                </Pressable>
+              </Modal>
+            </>
+          )}
           <TextInput
             style={styles.input}
             placeholder="Plazas totales"
             value={newSeatsTotal}
             onChangeText={setNewSeatsTotal}
             keyboardType="number-pad"
+            editable={!creating}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Costo de membresía (ej: 499.00)"
+            value={newMembershipCost}
+            onChangeText={setNewMembershipCost}
+            keyboardType="decimal-pad"
             editable={!creating}
           />
           <Text style={styles.label}>Periodo inicio</Text>
@@ -253,6 +389,16 @@ export default function SuperadminOrganizationsScreen() {
             placeholder="Seleccionar fecha de fin"
             editable={!creating}
             style={styles.dateField}
+          />
+          <Text style={styles.label}>Notas</Text>
+          <TextInput
+            style={[styles.input, styles.textArea]}
+            placeholder="Notas adicionales"
+            value={newNotes}
+            onChangeText={setNewNotes}
+            multiline
+            numberOfLines={3}
+            editable={!creating}
           />
           <View style={styles.createFormActions}>
             <Button theme="blue" onPress={registerCompany} disabled={creating}>
@@ -296,19 +442,77 @@ export default function SuperadminOrganizationsScreen() {
             )}
             {editing === item.id ? (
               <View style={styles.form}>
+                <Text style={styles.label}>Estado</Text>
+                {isWeb ? (
+                  <View style={styles.selectWrapper}>
+                    {React.createElement('select', {
+                      value: status,
+                      onChange: (e: React.ChangeEvent<HTMLSelectElement>) => setStatus(e.target.value),
+                      disabled: saving,
+                      style: {
+                        width: '100%',
+                        padding: 12,
+                        fontSize: 16,
+                        borderWidth: 1,
+                        borderStyle: 'solid',
+                        borderColor: '#e5e5e5',
+                        borderRadius: 8,
+                        backgroundColor: saving ? '#f5f5f5' : '#fff',
+                        outlineStyle: 'none',
+                      },
+                    }, SUBSCRIPTION_STATUSES.map((s) =>
+                      React.createElement('option', { key: s, value: s }, STATUS_LABELS[s])
+                    ))}
+                  </View>
+                ) : (
+                  <>
+                    <Pressable
+                      style={[styles.pickerTrigger, saving && styles.pickerTriggerDisabled]}
+                      onPress={() => !saving && setShowEditStatusPicker(true)}
+                      disabled={saving}
+                    >
+                      <Text style={styles.pickerTriggerText}>{STATUS_LABELS[status] || status}</Text>
+                    </Pressable>
+                    <Modal visible={showEditStatusPicker} transparent animationType="slide">
+                      <Pressable style={styles.modalOverlay} onPress={() => setShowEditStatusPicker(false)}>
+                        <View style={styles.modalContent}>
+                          <Text style={styles.modalTitle}>Seleccionar estado</Text>
+                          {SUBSCRIPTION_STATUSES.map((s) => (
+                            <Pressable
+                              key={s}
+                              style={[styles.modalOption, status === s && styles.modalOptionSelected]}
+                              onPress={() => {
+                                setStatus(s);
+                                setShowEditStatusPicker(false);
+                              }}
+                            >
+                              <Text style={[styles.modalOptionText, status === s && styles.modalOptionTextSelected]}>
+                                {STATUS_LABELS[s]}
+                              </Text>
+                            </Pressable>
+                          ))}
+                          <Pressable style={styles.modalCancel} onPress={() => setShowEditStatusPicker(false)}>
+                            <Text style={styles.modalCancelText}>Cancelar</Text>
+                          </Pressable>
+                        </View>
+                      </Pressable>
+                    </Modal>
+                  </>
+                )}
                 <TextInput
                   style={styles.input}
-                  placeholder="Status: trial, active, past_due, canceled"
-                  value={status}
-                  onChangeText={setStatus}
+                  placeholder="Plazas totales"
+                  value={seatsTotal}
+                  onChangeText={setSeatsTotal}
+                  keyboardType="number-pad"
                   editable={!saving}
                 />
                 <TextInput
                   style={styles.input}
-                  placeholder="Seats total"
-                  value={seatsTotal}
-                  onChangeText={setSeatsTotal}
-                  keyboardType="number-pad"
+                  placeholder="Costo de membresía (ej: 499.00)"
+                  value={membershipCost}
+                  onChangeText={setMembershipCost}
+                  keyboardType="decimal-pad"
                   editable={!saving}
                 />
                 <Text style={styles.label}>Periodo inicio</Text>
@@ -327,17 +531,34 @@ export default function SuperadminOrganizationsScreen() {
                   editable={!saving}
                   style={styles.dateField}
                 />
-                <Button theme="blue" onPress={() => saveSubscription(item.id)} disabled={saving}>
-                  {saving ? 'Guardando...' : 'Guardar'}
-                </Button>
-                <Button theme="gray" onPress={() => setEditing(null)} disabled={saving}>
-                  Cancelar
-                </Button>
+                <Text style={styles.label}>Notas</Text>
+                <TextInput
+                  style={[styles.input, styles.textArea]}
+                  placeholder="Notas adicionales"
+                  value={notes}
+                  onChangeText={setNotes}
+                  multiline
+                  numberOfLines={3}
+                  editable={!saving}
+                />
+                <View style={styles.cardActions}>
+                  <Button theme="blue" onPress={() => saveSubscription(item.id)} disabled={saving}>
+                    {saving ? 'Guardando...' : 'Guardar'}
+                  </Button>
+                  <Button theme="gray" onPress={() => setEditing(null)} disabled={saving}>
+                    Cancelar
+                  </Button>
+                </View>
               </View>
             ) : (
-              <Button theme="blue" size="$3" onPress={() => startEdit(item)}>
-                Editar suscripción
-              </Button>
+              <View style={styles.cardActions}>
+                <Button theme="blue" size="$3" onPress={() => router.push(`/superadmin/org/${item.id}`)}>
+                  Ver detalles
+                </Button>
+                <Button theme="blue" size="$3" onPress={() => startEdit(item)}>
+                  Editar suscripción
+                </Button>
+              </View>
             )}
           </View>
         )}
@@ -381,5 +602,72 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     fontSize: 16,
     ...(Platform.OS === 'web' && { outlineStyle: 'none' }),
+  },
+  textArea: {
+    minHeight: 80,
+    textAlignVertical: 'top',
+  },
+  selectWrapper: { marginBottom: 12 },
+  pickerTrigger: {
+    borderWidth: 1,
+    borderColor: '#e5e5e5',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+    minHeight: 48,
+    justifyContent: 'center',
+  },
+  pickerTriggerDisabled: { backgroundColor: '#f5f5f5' },
+  pickerTriggerText: { fontSize: 16, color: '#000' },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+    paddingBottom: 24,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    textAlign: 'center',
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  modalOption: {
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  modalOptionSelected: {
+    backgroundColor: '#e8f4fd',
+  },
+  modalOptionText: {
+    fontSize: 16,
+    color: '#333',
+  },
+  modalOptionTextSelected: {
+    color: '#0a7ea4',
+    fontWeight: '600',
+  },
+  modalCancel: {
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    marginTop: 8,
+  },
+  modalCancelText: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+  },
+  cardActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
   },
 });

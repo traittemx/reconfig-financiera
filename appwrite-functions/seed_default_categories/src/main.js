@@ -7,23 +7,40 @@ const { Client, Databases, Query, ID } = require('node-appwrite');
 
 const DATABASE_ID = process.env.APPWRITE_DATABASE_ID || 'finaria';
 const DEFAULT_CATEGORIES = [
-  { kind: 'EXPENSE', name: 'Alimentación', icon: 'UtensilsCrossed', color: '#e11d48' },
+  { kind: 'INCOME', name: 'Salario', icon: 'Wallet', color: '#0d9488' },
+  { kind: 'INCOME', name: 'Otros ingresos', icon: 'DollarSign', color: '#0891b2' },
+  { kind: 'EXPENSE', name: 'Comida', icon: 'UtensilsCrossed', color: '#e11d48' },
   { kind: 'EXPENSE', name: 'Transporte', icon: 'Car', color: '#2563eb' },
-  { kind: 'EXPENSE', name: 'Vivienda', icon: 'Home', color: '#16a34a' },
+  { kind: 'EXPENSE', name: 'Diversión', icon: 'Gamepad2', color: '#7c3aed' },
+  { kind: 'EXPENSE', name: 'Renta', icon: 'Home', color: '#16a34a' },
+  { kind: 'EXPENSE', name: 'Gasolina', icon: 'Zap', color: '#ea580c' },
   { kind: 'EXPENSE', name: 'Salud', icon: 'HeartPulse', color: '#dc2626' },
   { kind: 'EXPENSE', name: 'Entretenimiento', icon: 'Gamepad2', color: '#7c3aed' },
-  { kind: 'EXPENSE', name: 'Educación', icon: 'GraduationCap', color: '#ea580c' },
-  { kind: 'EXPENSE', name: 'Otros gastos', icon: 'Receipt', color: '#64748b' },
-  { kind: 'INCOME', name: 'Nómina', icon: 'Wallet', color: '#0d9488' },
-  { kind: 'INCOME', name: 'Freelance', icon: 'Briefcase', color: '#be185d' },
-  { kind: 'INCOME', name: 'Otros ingresos', icon: 'DollarSign', color: '#0891b2' },
+  { kind: 'EXPENSE', name: 'Streaming', icon: 'Music', color: '#0891b2' },
+  { kind: 'EXPENSE', name: 'Viajes', icon: 'Plane', color: '#0d9488' },
+  { kind: 'EXPENSE', name: 'Café', icon: 'Coffee', color: '#ca8a04' },
+  { kind: 'EXPENSE', name: 'Libros', icon: 'BookOpen', color: '#65a30d' },
+  { kind: 'EXPENSE', name: 'Regalos', icon: 'Gift', color: '#be185d' },
 ];
+
+function getQueryParams(req) {
+  if (req.query && typeof req.query === 'object') return req.query;
+  const path = req.path || '';
+  const i = path.indexOf('?');
+  if (i === -1) return {};
+  try {
+    return Object.fromEntries(new URLSearchParams(path.slice(i)));
+  } catch {
+    return {};
+  }
+}
 
 module.exports = async ({ req, res, log, error }) => {
   try {
+    const query = getQueryParams(req);
     const body = req.bodyJson || {};
-    const orgId = body.p_org_id;
-    const userId = body.p_user_id;
+    const orgId = query.p_org_id || body.p_org_id;
+    const userId = query.p_user_id || body.p_user_id;
     if (!orgId || !userId) {
       return res.json({ error: 'Missing p_org_id or p_user_id' }, 400);
     }

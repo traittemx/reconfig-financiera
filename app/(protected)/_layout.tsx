@@ -52,7 +52,10 @@ export default function ProtectedLayout() {
     return (
       <View style={styles.centered}>
         <Text style={styles.errorTitle}>No se pudo cargar tu perfil</Text>
-        <Text style={styles.errorMessage}>Revisa tu conexión y pulsa Reintentar.</Text>
+        <Text style={styles.errorMessage}>
+          Tu sesión es válida pero no existe un perfil en la base de datos. Puede deberse a permisos
+          en Appwrite (colección profiles) o a una cuenta creada sin completar el registro.
+        </Text>
         <Pressable style={styles.retryButton} onPress={() => refresh()}>
           <Text style={styles.retryText}>Reintentar</Text>
         </Pressable>
