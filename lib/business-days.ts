@@ -7,6 +7,24 @@ import {
 } from 'date-fns';
 
 /**
+ * Parses a "YYYY-MM-DD" string as local midnight (avoids UTC shift when using new Date(str)).
+ */
+export function parseLocalDateString(dateStr: string): Date {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, (m ?? 1) - 1, d ?? 1);
+}
+
+/**
+ * Returns "YYYY-MM-DD" for the given date in the user's local timezone.
+ */
+export function toLocalDateString(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/**
  * Number of business days (Mon–Fri) between start and end, inclusive of start.
  * If end is before start, returns 0.
  */

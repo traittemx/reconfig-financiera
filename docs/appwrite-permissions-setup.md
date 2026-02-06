@@ -33,7 +33,12 @@ Añade estos permisos para el rol **Users** (usuarios autenticados). En la UI su
 | **pilot_daily_recommendations** | **Read** | Recomendaciones diarias del piloto. |
 | **org_pilot_aggregates** | **Read** | Agregados del piloto por org (si se usan en la app). |
 
-Si ves **401 en `categories`**, **`transactions`** o **`accounts`**, añade en la consola para cada una: rol **Users** con **Read** (y **Create**, **Update**, **Delete** para que crear/editar funcione).
+Si ves **401 en `categories`**, **`transactions`** o **`accounts`**, añade en la consola para cada una: rol **Users** con **Read** (y **Create**, **Update**, **Delete** para que crear/editar/eliminar funcione).
+
+**Si no puedes eliminar categorías (401/403),** ejecuta el script que añade permisos automáticamente:
+```bash
+node scripts/appwrite-fix-categories-permissions.js
+```
 
 ## Pasos en la consola
 

@@ -157,6 +157,7 @@ async function main() {
         { type: 'string', key: 'avatar_url', size: 2048, required: false },
         { type: 'datetime', key: 'created_at', required: true },
         { type: 'datetime', key: 'updated_at', required: true },
+        { type: 'string', key: 'defaults_seeded_at', size: 64, required: false },
       ],
     },
     {

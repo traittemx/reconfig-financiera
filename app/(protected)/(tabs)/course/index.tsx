@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import { Lock, CirclePlay, CheckCircle2, Play } from '@tamagui/lucide-icons';
 import * as Haptics from 'expo-haptics';
 import { useAuth } from '@/contexts/auth-context';
-import { getDayUnlocked } from '@/lib/business-days';
+import { getDayUnlocked, parseLocalDateString, toLocalDateString } from '@/lib/business-days';
 import { listDocuments, updateDocument, COLLECTIONS, Query, type AppwriteDocument } from '@/lib/appwrite';
 import { requestNotificationPermissions, scheduleLessonReminders } from '@/lib/notifications';
 
@@ -24,7 +24,7 @@ export default function CourseListScreen() {
   const [progress, setProgress] = useState<Record<number, string | null>>({});
   const [starting, setStarting] = useState(false);
   const dayUnlocked = profile?.start_date
-    ? getDayUnlocked(new Date(profile.start_date))
+    ? getDayUnlocked(parseLocalDateString(profile.start_date))
     : 0;
 
   useEffect(() => {
@@ -83,11 +83,11 @@ export default function CourseListScreen() {
     } catch {}
     setStarting(true);
     try {
-      const now = new Date().toISOString();
-      const startDateStr = now.slice(0, 10);
+      const now = new Date();
+      const startDateStr = toLocalDateString(now);
       await updateDocument(COLLECTIONS.profiles, profile.id, {
         start_date: startDateStr,
-        updated_at: now,
+        updated_at: now.toISOString(),
       });
       await refresh();
       if (Platform.OS !== 'web') {

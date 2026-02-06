@@ -23,6 +23,8 @@ export interface Profile {
   avatar_url: string | null;
   created_at: string;
   updated_at: string;
+  /** Set when default categories/accounts were seeded (first login). Avoids re-seeding on every load. */
+  defaults_seeded_at?: string | null;
 }
 
 export interface OrgSubscription {

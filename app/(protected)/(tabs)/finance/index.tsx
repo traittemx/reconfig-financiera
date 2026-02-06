@@ -3,6 +3,7 @@ import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Platform } from '
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/auth-context';
 import { execFunction, listDocuments, COLLECTIONS, Query, type AppwriteDocument } from '@/lib/appwrite';
+import { seedDefaultsLocally, markProfileDefaultsSeeded } from '@/lib/seed-defaults';
 import { startOfMonth, endOfMonth, format, addMonths, subMonths, differenceInMonths } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { MotiView } from 'moti';
@@ -84,7 +85,7 @@ const LINK_ITEMS = [
 
 export default function FinanceOverviewScreen() {
   const router = useRouter();
-  const { profile, session } = useAuth();
+  const { profile, session, refresh } = useAuth();
   // Use same userId logic as accounts.tsx for consistency
   const userId = session?.user?.id ?? profile?.id;
   const [selectedMonth, setSelectedMonth] = useState(() => startOfMonth(new Date()));
@@ -276,23 +277,35 @@ export default function FinanceOverviewScreen() {
     
     loadData();
     
-    // Execute seed functions in background only if org_id exists
-    if (profile?.org_id) {
-      execFunction('seed_default_categories', {
-        p_org_id: profile.org_id,
-        p_user_id: userId,
-      }).catch((e) => {
-        console.log('[finance index] seed_default_categories error:', e);
-      });
-      
-      execFunction('seed_default_accounts', {
-        p_org_id: profile.org_id,
-        p_user_id: userId,
-      }).catch((e) => {
-        console.log('[finance index] seed_default_accounts error:', e);
-      });
+    // Seed default categories/accounts only the first time (per profile.defaults_seeded_at).
+    // If Cloud Functions are not deployed (404) or fail, fallback to client-side seed.
+    if (profile?.org_id && !profile?.defaults_seeded_at) {
+      (async () => {
+        let ok = false;
+        try {
+          await Promise.all([
+            execFunction('seed_default_categories', { p_org_id: profile.org_id, p_user_id: userId }, false),
+            execFunction('seed_default_accounts', { p_org_id: profile.org_id, p_user_id: userId }, false),
+          ]);
+          ok = true;
+        } catch (e) {
+          console.log('[finance index] seed functions error:', e);
+          try {
+            await seedDefaultsLocally(profile.org_id, userId);
+            ok = true;
+          } catch (localErr) {
+            console.log('[finance index] seedDefaultsLocally error:', localErr);
+          }
+        }
+        if (ok && profile?.id) {
+          try {
+            await markProfileDefaultsSeeded(profile.id);
+            await refresh();
+          } catch (_) {}
+        }
+      })();
     }
-  }, [userId, profile?.org_id, selectedMonth]);
+  }, [userId, profile?.org_id, profile?.defaults_seeded_at, profile?.id, refresh, selectedMonth]);
 
   const monthStartIso = startOfMonth(selectedMonth).toISOString();
   const monthEndIso = endOfMonth(selectedMonth).toISOString();

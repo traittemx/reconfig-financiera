@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getUnlockDateForLesson } from '@/lib/business-days';
+import { getUnlockDateForLesson, parseLocalDateString } from '@/lib/business-days';
 
 const NOTIFICATION_PERMISSION_KEY = 'notification_permission_requested';
 
@@ -237,7 +237,7 @@ export async function scheduleLessonReminders(startDate: string): Promise<void> 
 
   await cancelLessonReminders();
 
-  const start = new Date(startDate);
+  const start = parseLocalDateString(startDate);
   const now = new Date();
 
   for (let N = 1; N <= TOTAL_LESSONS; N++) {

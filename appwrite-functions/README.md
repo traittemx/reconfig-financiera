@@ -1,6 +1,6 @@
 # Appwrite Functions – Reconfiguración Financiera
 
-Despliega estas 5 funciones en tu proyecto de Appwrite para que la app pueda usarlas. La app llama a `execFunction('FUNCTION_ID', payload)`, así que el **Function ID** en consola debe coincidir con el nombre indicado abajo.
+Despliega estas 6 funciones en tu proyecto de Appwrite para que la app pueda usarlas. La app llama a `execFunction('FUNCTION_ID', payload)`, así que el **Function ID** en consola debe coincidir con el nombre indicado abajo.
 
 ## Funciones
 
@@ -11,16 +11,18 @@ Despliega estas 5 funciones en tu proyecto de Appwrite para que la app pueda usa
 | `seed_default_categories` | Crea categorías por defecto para org/usuario | `{ p_org_id: string, p_user_id: string }` | No (usa API key) |
 | `seed_default_accounts` | Crea cuenta por defecto "Efectivo" para org/usuario | `{ p_org_id: string, p_user_id: string }` | No (usa API key) |
 | `award_points` | Otorga puntos por evento (idempotente) | `{ p_org_id, p_user_id, p_event_key, p_ref_table?, p_ref_id? }` | No (usa API key) |
+| `delete_category` | Elimina una categoría (por permisos; valida user_id) | `{ category_id: string, user_id: string }` | Sí |
 
 - **validate_linking_code** devuelve `{ valid: boolean, org_name: string | null }`.
 - **join_org_with_code** devuelve `{}` en éxito; en error devuelve `{ error: "CODE_INVALID:..." }` u otros.
 - **award_points** devuelve el número de puntos otorgados (0 si no aplica o ya otorgado).
+- **delete_category** devuelve `{ ok: true }` en éxito; la app la usa como fallback cuando `deleteDocument` falla por permisos.
 
 ## Despliegue en Appwrite Console
 
 ### 1. Crear cada función
 
-Para cada carpeta (`validate_linking_code`, `join_org_with_code`, `seed_default_categories`, `seed_default_accounts`, `award_points`):
+Para cada carpeta (`validate_linking_code`, `join_org_with_code`, `seed_default_categories`, `seed_default_accounts`, `award_points`, `delete_category`):
 
 1. En **Appwrite Console** → **Functions** → **Create function**.
 2. **Name**: el nombre que quieras (ej. "Validate linking code").
@@ -29,7 +31,8 @@ Para cada carpeta (`validate_linking_code`, `join_org_with_code`, `seed_default_
    - `join_org_with_code`
    - `seed_default_categories`
    - `seed_default_accounts`
-   - `award_points`  
+   - `award_points`
+   - `delete_category`  
    (La app usa estos IDs en `execFunction('...', payload)`.)
 
 ### 2. Runtime y entrada
@@ -46,6 +49,7 @@ Para cada carpeta (`validate_linking_code`, `join_org_with_code`, `seed_default_
   - Función `seed_default_categories` → Root directory: `appwrite-functions/seed_default_categories`
   - Función `seed_default_accounts` → Root directory: `appwrite-functions/seed_default_accounts`
   - Función `award_points` → Root directory: `appwrite-functions/award_points`
+  - Función `delete_category` → Root directory: `appwrite-functions/delete_category`
   Así Appwrite hará `npm install` y `npm run build` solo dentro de esa carpeta (solo se instala `node-appwrite`) y no todo el proyecto.
 - Cada carpeta tiene `package.json` con `node-appwrite` **^15.0.1 o superior** (versiones anteriores provocan "request cannot have request body" en Appwrite Cloud), `main: "src/main.js"` y script `build` (para que el paso de build no falle).
 - Opción A – **Subir ZIP**: desde la carpeta de la función (`appwrite-functions/validate_linking_code/`), ejecuta `npm install`, luego comprime `src/`, `node_modules/` y `package.json` y sube el ZIP en **Deployments**.
@@ -108,3 +112,4 @@ En cada colección: **Settings** → **Permissions** → **Create permission** �
 - **seed_default_categories**: `{ p_org_id: "...", p_user_id: "..." }`
 - **seed_default_accounts**: `{ p_org_id: "...", p_user_id: "..." }`
 - **award_points**: `{ p_org_id, p_user_id, p_event_key: "LESSON_COMPLETED", p_ref_table: "user_lesson_progress", p_ref_id: "5" }`
+- **delete_category**: `{ category_id: "...", user_id: "..." }`

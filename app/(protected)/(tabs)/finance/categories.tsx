@@ -6,6 +6,7 @@ import { TrendingDown, TrendingUp, Pencil, Trash2 } from '@tamagui/lucide-icons'
 import { useAuth } from '@/contexts/auth-context';
 import { usePoints } from '@/contexts/points-context';
 import { listDocuments, createDocument, updateDocument, deleteDocument, execFunction, COLLECTIONS, Query, type AppwriteDocument } from '@/lib/appwrite';
+import { seedDefaultsLocally, markProfileDefaultsSeeded } from '@/lib/seed-defaults';
 import { awardPoints } from '@/lib/points';
 import { PointsRewardModal } from '@/components/PointsRewardModal';
 import {
@@ -23,7 +24,7 @@ const KIND_OPTIONS = [
 ];
 
 export default function CategoriesScreen() {
-  const { profile } = useAuth();
+  const { profile, refresh } = useAuth();
   const pointsContext = usePoints();
   const [rewardToShow, setRewardToShow] = useState<{ points: number; message: string } | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -38,13 +39,27 @@ export default function CategoriesScreen() {
   useEffect(() => {
     if (!profile?.id || !profile.org_id) return;
     (async () => {
-      try {
-        await Promise.all([
-          execFunction('seed_default_categories', { p_org_id: profile.org_id, p_user_id: profile.id }, false),
-          execFunction('seed_default_accounts', { p_org_id: profile.org_id, p_user_id: profile.id }, false),
-        ]);
-      } catch {
-        // Si la función no está desplegada o falla, seguimos y mostramos lo que haya
+      // Seed default categories/accounts only the first time (per profile.defaults_seeded_at).
+      if (!profile.defaults_seeded_at) {
+        let ok = false;
+        try {
+          await Promise.all([
+            execFunction('seed_default_categories', { p_org_id: profile.org_id, p_user_id: profile.id }, false),
+            execFunction('seed_default_accounts', { p_org_id: profile.org_id, p_user_id: profile.id }, false),
+          ]);
+          ok = true;
+        } catch {
+          try {
+            await seedDefaultsLocally(profile.org_id!, profile.id);
+            ok = true;
+          } catch (_) {}
+        }
+        if (ok) {
+          try {
+            await markProfileDefaultsSeeded(profile.id);
+            await refresh();
+          } catch (_) {}
+        }
       }
       const { data } = await listDocuments<AppwriteDocument>(COLLECTIONS.categories, [
         Query.equal('user_id', [profile.id]),
@@ -60,7 +75,7 @@ export default function CategoriesScreen() {
         color: (d.color as string) ?? null,
       })) as Category[]);
     })();
-  }, [profile?.id, profile?.org_id]);
+  }, [profile?.id, profile?.org_id, profile?.defaults_seeded_at, refresh]);
 
   function openEditForm(cat: Category) {
     setEditingCategory(cat);
@@ -157,17 +172,47 @@ export default function CategoriesScreen() {
 
   async function deleteCategory(cat: Category) {
     if (!profile?.id) return;
+    const previous = categories;
+    setCategories((prev) => prev.filter((c) => c.id !== cat.id));
     setLoading(true);
+    if (editingCategory?.id === cat.id) cancelForm();
+
+    const showError = (err: unknown) => {
+      const msg =
+        err && typeof err === 'object' && 'message' in err
+          ? String((err as { message?: string }).message)
+          : err && typeof err === 'object' && 'code' in err
+            ? `[${(err as { code?: number }).code}] ${(err as { message?: string }).message ?? ''}`
+            : String(err);
+      if (__DEV__) console.error('[categories] delete error:', err);
+      setCategories(previous);
+      setLoading(false);
+      Alert.alert('Error al eliminar', msg || 'No se pudo eliminar la categoría. Revisa permisos en Appwrite (colección categories: Delete para Users).');
+    };
+
     try {
       await deleteDocument(COLLECTIONS.categories, cat.id);
-    } catch (err) {
       setLoading(false);
-      Alert.alert('Error', err instanceof Error ? err.message : 'Error al eliminar');
+      await refreshCategories();
       return;
+    } catch (err) {
+      try {
+        const exec = await execFunction(
+          'delete_category',
+          { category_id: cat.id, user_id: profile.id },
+          false
+        );
+        const body = (exec as { responseBody?: string })?.responseBody;
+        if (body && (body.includes('"ok":true') || body.includes('"ok": true'))) {
+          setLoading(false);
+          await refreshCategories();
+          return;
+        }
+      } catch (_) {
+        // delete_category no desplegada o falló
+      }
+      showError(err);
     }
-    setLoading(false);
-    if (editingCategory?.id === cat.id) cancelForm();
-    await refreshCategories();
   }
 
   const expenseCategories = categories.filter((c) => c.kind === 'EXPENSE');

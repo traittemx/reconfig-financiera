@@ -7,8 +7,7 @@ import { ChevronLeft, CheckCircle2, Sparkles } from '@tamagui/lucide-icons';
 import * as Haptics from 'expo-haptics';
 import { useAuth } from '@/contexts/auth-context';
 import { usePoints } from '@/contexts/points-context';
-import { addBusinessDays } from 'date-fns';
-import { getDayUnlocked } from '@/lib/business-days';
+import { getDayUnlocked, getUnlockDateForLesson, parseLocalDateString } from '@/lib/business-days';
 import {
   getDocument,
   listDocuments,
@@ -71,7 +70,7 @@ export default function LessonScreen() {
   const { profile } = useAuth();
   const pointsContext = usePoints();
   const dayNum = parseInt(day ?? '1', 10);
-  const dayUnlocked = profile?.start_date ? getDayUnlocked(new Date(profile.start_date)) : 0;
+  const dayUnlocked = profile?.start_date ? getDayUnlocked(parseLocalDateString(profile.start_date)) : 0;
   const isLocked = dayNum > dayUnlocked || dayNum < 1 || dayNum > 23;
   const [lesson, setLesson] = useState<Lesson | null>(null);
   const [completedAt, setCompletedAt] = useState<string | null>(null);
@@ -216,8 +215,8 @@ export default function LessonScreen() {
   }
 
   if (isLocked) {
-    const startDate = profile?.start_date ? new Date(profile.start_date + 'T12:00:00') : null;
-    const unlockDate = startDate ? addBusinessDays(startDate, dayNum - 1) : null;
+    const startDate = profile?.start_date ? parseLocalDateString(profile.start_date) : null;
+    const unlockDate = startDate ? getUnlockDateForLesson(startDate, dayNum) : null;
     return (
       <View style={styles.container}>
         <View style={styles.headerRow}>

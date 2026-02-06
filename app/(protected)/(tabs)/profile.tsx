@@ -11,7 +11,7 @@ import { Sparkles, Star } from '@tamagui/lucide-icons';
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { profile, subscription, refresh } = useAuth();
+  const { profile, refresh } = useAuth();
   const [hasCompletedQuiz, setHasCompletedQuiz] = useState<boolean | null>(null);
   const [hasCompletedArchetypeQuiz, setHasCompletedArchetypeQuiz] = useState<boolean | null>(null);
 
@@ -111,12 +111,6 @@ export default function ProfileScreen() {
           ? 'Ver mi Arquetipo Financiero'
           : 'Descubre tu Arquetipo Financiero'}
       </Button>
-      <Text style={styles.role}>Rol: {profile?.role}</Text>
-      {subscription && (
-        <Text style={styles.sub}>
-          Suscripción: {subscription.status} · {subscription.seats_used}/{subscription.seats_total} plazas
-        </Text>
-      )}
       {(profile?.role === 'ORG_ADMIN' || profile?.role === 'SUPER_ADMIN') && (
         <Button
           theme="blue"
@@ -152,8 +146,6 @@ const styles = StyleSheet.create({
     ...(Platform.OS === 'web' && { minHeight: '100%' }),
   },
   name: { fontSize: 22, fontWeight: 'bold', marginBottom: 8 },
-  role: { fontSize: 16, color: '#666', marginBottom: 4 },
-  sub: { fontSize: 14, color: '#888', marginBottom: 16 },
   checkinWrap: { marginBottom: 20 },
   completedButton: {
     backgroundColor: '#059669',

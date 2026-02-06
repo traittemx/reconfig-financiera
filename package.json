@@ -8,6 +8,7 @@
     "seed:demo": "node scripts/seed-demo.js",
     "appwrite:create-collections": "node scripts/appwrite-create-collections.js",
     "appwrite:create-bucket": "node scripts/appwrite-create-storage-bucket.js",
+    "appwrite:fix-categories-permissions": "node scripts/appwrite-fix-categories-permissions.js",
     "appwrite:setup": "npm run appwrite:create-collections && npm run appwrite:create-bucket",
     "appwrite:verify": "node scripts/verify-appwrite-connection.js",
     "appwrite:seed-lessons": "node scripts/seed-lessons-appwrite.js",

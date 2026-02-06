@@ -15,6 +15,7 @@ import {
   type AppwriteDocument,
 } from '@/lib/appwrite';
 import { useAuth } from '@/contexts/auth-context';
+import { toLocalDateString } from '@/lib/business-days';
 
 export default function InviteAcceptScreen() {
   const { token } = useLocalSearchParams<{ token: string }>();
@@ -132,7 +133,7 @@ export default function InviteAcceptScreen() {
           full_name: fullName.trim(),
           org_id: invite.org_id,
           role: invite.role,
-          start_date: new Date().toISOString().slice(0, 10),
+          start_date: toLocalDateString(new Date()),
           updated_at: now,
         });
       } catch {
@@ -142,7 +143,7 @@ export default function InviteAcceptScreen() {
             full_name: fullName.trim(),
             org_id: invite.org_id,
             role: invite.role,
-            start_date: new Date().toISOString().slice(0, 10),
+            start_date: toLocalDateString(new Date()),
             created_at: now,
             updated_at: now,
           },

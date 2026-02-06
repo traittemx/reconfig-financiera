@@ -1,0 +1,1 @@
+{"name":"delete_category","version":"1.0.0","description":"Appwrite Function: delete category by id (validates user_id)","main":"src/main.js","scripts":{"build":"echo 'No build step'"},"dependencies":{"node-appwrite":"^15.0.1"}}
