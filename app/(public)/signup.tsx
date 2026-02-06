@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,7 +9,7 @@ import {
   ScrollView,
   Platform,
 } from 'react-native';
-import { Link, useRouter } from 'expo-router';
+import { Link, useRouter, useLocalSearchParams } from 'expo-router';
 import { Button } from 'tamagui';
 import { User, Mail, Lock, Eye, EyeOff, KeyRound } from '@tamagui/lucide-icons';
 import { account, execFunction, ID, createDocument, COLLECTIONS } from '@/lib/appwrite';
@@ -29,11 +29,13 @@ function showError(title: string, message: string) {
 
 export default function SignupScreen() {
   const router = useRouter();
+  const { code: codeParam } = useLocalSearchParams<{ code?: string }>();
   const { setSessionAndLoadProfile, refresh } = useAuth();
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [linkingCode, setLinkingCode] = useState('');
+
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [signupError, setSignupError] = useState<string | null>(null);
@@ -69,6 +71,14 @@ export default function SignupScreen() {
       setOrgPreview({ valid: false, org_name: null });
     }
   }, []);
+
+  useEffect(() => {
+    const c = typeof codeParam === 'string' ? codeParam.trim().toUpperCase() : '';
+    if (c) {
+      setLinkingCode(c);
+      validateCode(c);
+    }
+  }, [codeParam, validateCode]);
 
   async function signUp() {
     setSignupError(null);
