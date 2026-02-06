@@ -108,24 +108,33 @@ export default function SignupScreen() {
           { p_code: linkingCode.trim(), p_full_name: fullName.trim() },
           false
         );
-        const raw = exec.responseBody ?? (exec as { response?: string }).response ?? '';
+        let raw: unknown = (exec as { responseBody?: string; response?: string }).responseBody ?? (exec as { response?: string }).response ?? '';
+        if (typeof raw !== 'string') raw = raw != null ? JSON.stringify(raw) : '';
+        let data: Record<string, unknown> | null = null;
         if (typeof raw === 'string' && raw.trim()) {
           try {
-            const data = JSON.parse(raw);
-            if (data && typeof data.org_id === 'string' && !data.error) {
-              subscriptionFromJoin = {
-                org_id: data.org_id,
-                status: (data.status === 'active' || data.status === 'trial' ? data.status : 'trial') as OrgSubscription['status'],
-                seats_total: typeof data.seats_total === 'number' ? data.seats_total : 10,
-                seats_used: typeof data.seats_used === 'number' ? data.seats_used : 0,
-                period_start: data.period_start ?? null,
-                period_end: data.period_end ?? null,
-                updated_at: typeof data.updated_at === 'string' ? data.updated_at : new Date().toISOString(),
-              };
+            data = JSON.parse(raw) as Record<string, unknown>;
+            if (data && typeof data === 'object' && typeof data.body === 'string') {
+              try {
+                data = JSON.parse(data.body) as Record<string, unknown>;
+              } catch {
+                data = null;
+              }
             }
           } catch {
-            /* ignorar si no viene suscripción */
+            data = null;
           }
+        }
+        if (data && typeof data.org_id === 'string' && !data.error) {
+          subscriptionFromJoin = {
+            org_id: data.org_id,
+            status: (data.status === 'active' || data.status === 'trial' ? data.status : 'trial') as OrgSubscription['status'],
+            seats_total: typeof data.seats_total === 'number' ? data.seats_total : 10,
+            seats_used: typeof data.seats_used === 'number' ? data.seats_used : 0,
+            period_start: (data.period_start as string | null) ?? null,
+            period_end: (data.period_end as string | null) ?? null,
+            updated_at: typeof data.updated_at === 'string' ? data.updated_at : new Date().toISOString(),
+          };
         }
       } catch (joinErr) {
         const msg = joinErr instanceof Error ? joinErr.message : String(joinErr);

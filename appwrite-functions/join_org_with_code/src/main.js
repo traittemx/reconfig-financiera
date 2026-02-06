@@ -5,8 +5,15 @@
  * Output: {} on success; throws CODE_INVALID | NO_SEATS | ALREADY_MEMBER
  */
 const { Client, Databases, Query } = require('node-appwrite');
+const crypto = require('crypto');
 
 const DATABASE_ID = process.env.APPWRITE_DATABASE_ID || 'finaria';
+
+/** documentId en Appwrite tiene máximo 36 caracteres. orgId_userId puede excederlo. */
+function memberDocumentId(orgId, userId) {
+  const combined = `${orgId}:${userId}`;
+  return crypto.createHash('sha256').update(combined).digest('hex').slice(0, 36);
+}
 
 function getQueryParams(req) {
   if (req.query && typeof req.query === 'object') return req.query;
@@ -105,7 +112,7 @@ module.exports = async ({ req, res, log, error }) => {
         role_in_org: 'EMPLOYEE',
       });
     } else {
-      const memberId = `${orgId}_${userId}`;
+      const memberId = memberDocumentId(orgId, userId);
       await databases.createDocument(
         DATABASE_ID,
         'org_members',

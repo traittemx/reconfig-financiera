@@ -2,7 +2,6 @@ import React, { createContext, useCallback, useContext, useEffect, useState } fr
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   account,
-  getDocument,
   createDocument,
   listDocuments,
   COLLECTIONS,
@@ -178,8 +177,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (profileData) setAuthCache(userId, profileData, null);
         return;
       }
-      const subDoc = await getDocument<AppwriteDocument>(COLLECTIONS.org_subscriptions, orgId);
-      const subData = mapSubscriptionDoc(subDoc);
+      const { data: subList } = await listDocuments<AppwriteDocument>(
+        COLLECTIONS.org_subscriptions,
+        [Query.equal('$id', [orgId]), Query.limit(1)]
+      ).catch(() => ({ data: [], total: 0 }));
+      const subDoc = subList?.[0] ?? null;
+      const subData = subDoc ? mapSubscriptionDoc(subDoc) : null;
       setSubscription(subData);
       if (profileData) setAuthCache(userId, profileData, subData);
     } catch {
@@ -236,10 +239,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setLoading(false);
         return;
       }
-      const subDoc = await getDocument<AppwriteDocument>(
+      const { data: subList } = await listDocuments<AppwriteDocument>(
         COLLECTIONS.org_subscriptions,
-        orgId
-      ).catch(() => null);
+        [Query.equal('$id', [orgId]), Query.limit(1)]
+      ).catch(() => ({ data: [], total: 0 }));
+      const subDoc = subList?.[0] ?? null;
       const subData = subDoc ? mapSubscriptionDoc(subDoc) : null;
       setSubscription(subData);
       if (prof) setAuthCache(userId, prof, subData);
@@ -280,16 +284,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return { ok: !!prof };
       }
       await sleep(400);
-      let subDoc: AppwriteDocument | null = await getDocument<AppwriteDocument>(
+      const { data: subList } = await listDocuments<AppwriteDocument>(
         COLLECTIONS.org_subscriptions,
-        orgId
-      ).catch(() => null);
+        [Query.equal('$id', [orgId]), Query.limit(1)]
+      ).catch(() => ({ data: [], total: 0 }));
+      let subDoc: AppwriteDocument | null = subList?.[0] ?? null;
       if (!subDoc) {
         await sleep(600);
-        subDoc = await getDocument<AppwriteDocument>(
+        const { data: subList2 } = await listDocuments<AppwriteDocument>(
           COLLECTIONS.org_subscriptions,
-          orgId
-        ).catch(() => null);
+          [Query.equal('$id', [orgId]), Query.limit(1)]
+        ).catch(() => ({ data: [], total: 0 }));
+        subDoc = subList2?.[0] ?? null;
       }
       const subData = subDoc ? mapSubscriptionDoc(subDoc) : null;
       setSubscription(subData);
