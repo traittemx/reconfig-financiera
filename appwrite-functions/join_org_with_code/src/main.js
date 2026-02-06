@@ -146,11 +146,21 @@ module.exports = async ({ req, res, log, error }) => {
       Query.equal('status', ['active']),
     ]);
     const used = countList.total ?? 0;
+    const updatedAt = new Date().toISOString();
     await databases.updateDocument(DATABASE_ID, 'org_subscriptions', orgId, {
       seats_used: used,
-      updated_at: new Date().toISOString(),
+      updated_at: updatedAt,
     });
-    return res.json({});
+    subDoc = await databases.getDocument(DATABASE_ID, 'org_subscriptions', orgId);
+    return res.json({
+      org_id: orgId,
+      status: subDoc.status || 'trial',
+      seats_total: subDoc.seats_total ?? 10,
+      seats_used: subDoc.seats_used ?? used,
+      period_start: subDoc.period_start ?? null,
+      period_end: subDoc.period_end ?? null,
+      updated_at: subDoc.updated_at ?? updatedAt,
+    });
   } catch (e) {
     error(String(e));
     return res.json({ error: String(e.message || e) }, 500);

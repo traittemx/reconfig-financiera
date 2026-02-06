@@ -22,6 +22,10 @@ function delay(ms: number): Promise<never> {
   return new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms));
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /** Minimal session shape for compatibility (Appwrite has no Session type in client; we use user id). */
 export interface AppwriteAuthSession {
   user: { id: string; email?: string };
@@ -144,8 +148,8 @@ interface AuthState {
   loading: boolean;
   canAccessApp: boolean;
   refresh: () => Promise<void>;
-  /** After login/signup: pass user id and load profile/subscription. Returns { ok: true } or { ok: false, error?: string }. */
-  setSessionAndLoadProfile: (userId: string) => Promise<{ ok: boolean; error?: string }>;
+  /** After login/signup: pass user id and load profile/subscription. Returns { ok: true } or { ok: false, error?: string }. subscriptionOverride evita getDocument tras registro. */
+  setSessionAndLoadProfile: (userId: string, subscriptionOverride?: OrgSubscription | null) => Promise<{ ok: boolean; error?: string }>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -247,7 +251,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [loadProfileAndSubscription]);
 
-  const setSessionAndLoadProfile = useCallback(async (userId: string): Promise<{ ok: boolean; error?: string }> => {
+  const setSessionAndLoadProfile = useCallback(async (userId: string, subscriptionOverride?: OrgSubscription | null): Promise<{ ok: boolean; error?: string }> => {
     setSession({ user: { id: userId } });
     setLoading(true);
     try {
@@ -260,6 +264,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         prof = await tryCreateMinimalProfile(userId);
       }
       if (prof && !prof.id) prof.id = userId;
+      if (subscriptionOverride != null && prof) {
+        if (!prof.org_id && subscriptionOverride.org_id) prof.org_id = subscriptionOverride.org_id;
+        setProfile(prof);
+        setSubscription(subscriptionOverride);
+        setAuthCache(userId, prof, subscriptionOverride);
+        setLoading(false);
+        return { ok: true };
+      }
       setProfile(prof);
       const orgId = prof?.org_id ?? null;
       if (!orgId) {
@@ -267,10 +279,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setLoading(false);
         return { ok: !!prof };
       }
-      const subDoc = await getDocument<AppwriteDocument>(
+      await sleep(400);
+      let subDoc: AppwriteDocument | null = await getDocument<AppwriteDocument>(
         COLLECTIONS.org_subscriptions,
         orgId
       ).catch(() => null);
+      if (!subDoc) {
+        await sleep(600);
+        subDoc = await getDocument<AppwriteDocument>(
+          COLLECTIONS.org_subscriptions,
+          orgId
+        ).catch(() => null);
+      }
       const subData = subDoc ? mapSubscriptionDoc(subDoc) : null;
       setSubscription(subData);
       if (prof) setAuthCache(userId, prof, subData);
