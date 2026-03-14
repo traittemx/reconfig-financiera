@@ -1,6 +1,25 @@
-import { useCallback, useEffect, useState } from 'react';
-import { View, Text, ScrollView, TextInput, StyleSheet, Alert, Platform, TouchableOpacity, Modal } from 'react-native';
+import { PointsRewardModal } from '@/components/PointsRewardModal';
+import { useAuth } from '@/contexts/auth-context';
+import { usePoints } from '@/contexts/points-context';
+import { TYPE_CONFIG } from '@/lib/account-types';
+import { COLLECTIONS, createDocument, deleteDocument, listDocuments, Query, updateDocument, type AppwriteDocument } from '@/lib/appwrite';
+import { awardPoints } from '@/lib/points';
+import type { SavingsGoal } from '@/types/database';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect } from '@react-navigation/native';
+import {
+  ChevronRight,
+  CreditCard,
+  Pencil,
+  Trash2
+} from '@tamagui/lucide-icons';
 import { useRouter } from 'expo-router';
+import { MotiView } from 'moti';
+import { useCallback, useEffect, useState } from 'react';
+import { Alert, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Button } from 'tamagui';
+
+const ACCOUNT_TYPES = ['CASH', 'BANK', 'CARD', 'CREDIT_CARD', 'SAVINGS', 'INVESTMENT', 'CREDIT'] as const;
 
 /** En web Alert.alert no se muestra; usamos window.alert. */
 function showError(title: string, message: string) {
@@ -10,38 +29,6 @@ function showError(title: string, message: string) {
     Alert.alert(title, message);
   }
 }
-import { useFocusEffect } from '@react-navigation/native';
-import { MotiView } from 'moti';
-import { Button } from 'tamagui';
-import {
-  Wallet,
-  Landmark,
-  CreditCard,
-  PiggyBank,
-  TrendingUp,
-  Plus,
-  Receipt,
-  Pencil,
-  Trash2,
-} from '@tamagui/lucide-icons';
-import { useAuth } from '@/contexts/auth-context';
-import { usePoints } from '@/contexts/points-context';
-import { listDocuments, createDocument, updateDocument, deleteDocument, COLLECTIONS, Query, type AppwriteDocument } from '@/lib/appwrite';
-import { awardPoints } from '@/lib/points';
-import { PointsRewardModal } from '@/components/PointsRewardModal';
-import type { SavingsGoal } from '@/types/database';
-
-const ACCOUNT_TYPES = ['CASH', 'BANK', 'CARD', 'CREDIT_CARD', 'SAVINGS', 'INVESTMENT', 'CREDIT'] as const;
-
-const TYPE_CONFIG: Record<string, { icon: typeof Wallet; label: string; color: string; bg: string }> = {
-  CASH: { icon: Wallet, label: 'Efectivo', color: '#16a34a', bg: '#dcfce7' },
-  BANK: { icon: Landmark, label: 'Banco', color: '#2563eb', bg: '#dbeafe' },
-  CARD: { icon: CreditCard, label: 'Tarjeta de débito', color: '#7c3aed', bg: '#ede9fe' },
-  CREDIT_CARD: { icon: CreditCard, label: 'Tarjeta de crédito', color: '#dc2626', bg: '#fee2e2' },
-  SAVINGS: { icon: PiggyBank, label: 'Ahorros', color: '#0d9488', bg: '#ccfbf1' },
-  INVESTMENT: { icon: TrendingUp, label: 'Inversión', color: '#ea580c', bg: '#ffedd5' },
-  CREDIT: { icon: Receipt, label: 'Crédito', color: '#dc2626', bg: '#fee2e2' },
-};
 
 function isDebtAccount(type: string): boolean {
   return type === 'CREDIT' || type === 'CREDIT_CARD';
@@ -107,6 +94,9 @@ export default function AccountsScreen() {
   const [goalModalSaving, setGoalModalSaving] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
+  const [activeTab, setActiveTab] = useState<'DEBIT' | 'CREDIT'>('DEBIT');
+  const [showBalance, setShowBalance] = useState(true);
+  const STORAGE_KEY = '@finance_show_balance';
 
   const fetchAccountsAndTx = useCallback(async () => {
     if (!userId) {
@@ -166,7 +156,7 @@ export default function AccountsScreen() {
           name: (g.name as string) ?? null,
           target_date: (g as { target_date?: string }).target_date ?? null,
           created_at: (g as { $createdAt?: string }).$createdAt ?? '',
-          updated_at: (g as { $updatedAt?: string }).$updatedAt ?? null,
+          updated_at: (g as { $updatedAt?: string }).$updatedAt ?? '',
         };
       });
       setSavingsGoals(byAccount);
@@ -182,6 +172,9 @@ export default function AccountsScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      AsyncStorage.getItem(STORAGE_KEY).then(val => {
+        if (val !== null) setShowBalance(val === 'true');
+      });
       fetchAccountsAndTx();
     }, [fetchAccountsAndTx])
   );
@@ -467,9 +460,14 @@ export default function AccountsScreen() {
 
   const totalBalance = accounts.reduce((sum, a) => {
     const isDebt = isDebtAccount(a.type);
+    if (isDebt) return sum;
     const bal = balanceForAccount(a.id, txForBalance, a.opening_balance, isDebt);
-    return sum + (isDebt ? -Math.abs(bal) : bal);
+    return sum + bal;
   }, 0);
+
+  const debitAccounts = accounts.filter(a => !isDebtAccount(a.type));
+  const creditAccounts = accounts.filter(a => isDebtAccount(a.type));
+  const filteredAccounts = activeTab === 'DEBIT' ? debitAccounts : creditAccounts;
 
   return (
     <View style={styles.wrapper}>
@@ -626,107 +624,133 @@ export default function AccountsScreen() {
         ) : null}
 
         {!showForm && !fetchError && (
-          <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>Total</Text>
-            <Text style={styles.totalAmount}>
-              {loadingList ? '...' : totalBalance.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}
-            </Text>
+          <View style={styles.tabContainer}>
+            <TouchableOpacity
+              style={[styles.tab, activeTab === 'DEBIT' && styles.activeTab]}
+              onPress={() => setActiveTab('DEBIT')}
+            >
+              <Text style={[styles.tabText, activeTab === 'DEBIT' && styles.activeTabText]}>Cuentas de débito</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.tab, activeTab === 'CREDIT' && styles.activeTab]}
+              onPress={() => setActiveTab('CREDIT')}
+            >
+              <Text style={[styles.tabText, activeTab === 'CREDIT' && styles.activeTabText]}>Tarjetas de crédito</Text>
+            </TouchableOpacity>
           </View>
+        )}
+
+        {!showForm && !fetchError && activeTab === 'CREDIT' && (
+          <MotiView
+            from={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ type: 'timing', duration: 300 }}
+          >
+            <TouchableOpacity
+              onPress={() => router.push('/(protected)/(tabs)/finance/credit-cards')}
+              style={styles.manageCardsBtn}
+            >
+              <View style={styles.manageCardsIconWrap}>
+                <CreditCard size={20} color="#2563eb" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.manageCardsBtnText}>Control Total de Tarjetas</Text>
+                <Text style={styles.manageCardsBtnSub}>Ver cortes, fechas de pago y anualidades</Text>
+              </View>
+              <ChevronRight size={20} color="#2563eb" />
+            </TouchableOpacity>
+          </MotiView>
         )}
 
         {loadingList ? (
           <Text style={styles.loadingText}>Cargando cuentas...</Text>
         ) : (
-        <>
-        {accounts.map((item, index) => {
-          const cfg = TYPE_CONFIG[item.type] ?? TYPE_CONFIG.BANK;
-          const Icon = cfg.icon;
-          const isDebt = isDebtAccount(item.type);
-          const bal = balanceForAccount(item.id, txForBalance, item.opening_balance, isDebt);
-          const balanceText = isDebt
-            ? `Deuda: ${Math.abs(bal).toLocaleString('es-MX', { style: 'currency', currency: item.currency || 'MXN' })}`
-            : bal.toLocaleString('es-MX', { style: 'currency', currency: item.currency || 'MXN' });
-          const hasCreditCardMeta =
-            item.type === 'CREDIT_CARD' &&
-            (item.cut_off_day != null || item.payment_day != null || item.credit_limit != null);
-          const creditCardMetaParts = hasCreditCardMeta
-            ? [
-                item.credit_limit != null
-                  ? `Límite: ${Number(item.credit_limit).toLocaleString('es-MX', { style: 'currency', currency: item.currency || 'MXN' })}`
-                  : null,
-                item.cut_off_day != null ? `Corte: día ${item.cut_off_day}` : null,
-                item.payment_day != null ? `Pago: día ${item.payment_day}` : null,
-              ]
-                .filter(Boolean)
-                .join(' · ')
-            : null;
-          const goal = item.type === 'SAVINGS' ? savingsGoals[item.id] : undefined;
-          const goalProgress =
-            goal && bal >= 0
-              ? Math.min(100, (bal / Number(goal.target_amount)) * 100)
-              : undefined;
-          return (
-            <MotiView
-              key={item.id}
-              from={{ opacity: 0, translateX: -16 }}
-              animate={{ opacity: 1, translateX: 0 }}
-              transition={{ type: 'timing', duration: 350, delay: 80 + index * 60 }}
-              style={styles.accountCard}
-            >
-              <View style={[styles.accountIconWrap, { backgroundColor: cfg.bg }]}>
-                <Icon size={24} color={cfg.color} />
-              </View>
-              <View style={styles.accountInfo}>
-                <Text style={styles.accountName}>{item.name}</Text>
-                {creditCardMetaParts ? (
-                  <Text style={styles.accountMeta}>{creditCardMetaParts}</Text>
-                ) : null}
-                {item.type === 'SAVINGS' && goal && (
-                  <Text style={styles.accountMeta}>
-                    Meta: {bal.toLocaleString('es-MX', { style: 'currency', currency: item.currency || 'MXN' })} /{' '}
-                    {Number(goal.target_amount).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}
-                    {' · '}
-                    {Math.round(goalProgress ?? 0)}%
-                  </Text>
-                )}
-                <Text style={[styles.accountBalance, isDebt && styles.accountBalanceCredit]}>
-                  {balanceText}
-                </Text>
-                {item.type === 'SAVINGS' && (
-                  <TouchableOpacity
-                    style={styles.goalButton}
-                    onPress={() => (goal ? openEditGoal(item.id) : openAddGoal(item.id))}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.goalButtonText}>{goal ? 'Editar meta' : 'Añadir meta'}</Text>
-                  </TouchableOpacity>
-                )}
-                <View style={styles.accountActions}>
-                  <TouchableOpacity onPress={() => openEditAccount(item)} style={styles.accountActionBtn} accessibilityLabel="Editar cuenta">
-                    <Pencil size={18} color="#2563eb" />
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => confirmDeleteAccount(item)} style={styles.accountActionBtn} accessibilityLabel="Eliminar cuenta">
-                    <Trash2 size={18} color="#dc2626" />
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </MotiView>
-          );
-        })}
+          <>
+            {filteredAccounts.map((item, index) => {
+              const cfg = TYPE_CONFIG[item.type] ?? TYPE_CONFIG.BANK;
+              const Icon = cfg.icon;
+              const isDebt = isDebtAccount(item.type);
+              const bal = balanceForAccount(item.id, txForBalance, item.opening_balance, isDebt);
 
-        <MotiView
-          from={{ opacity: 0, scale: 0.98 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ type: 'timing', duration: 400, delay: 80 + accounts.length * 60 }}
-        >
-          <TouchableOpacity style={styles.addCard} onPress={openNewAccountForm} activeOpacity={0.8}>
-            <View style={styles.addCardIconWrap}>
-              <Plus size={28} color="#64748b" />
+              return (
+                <MotiView
+                  key={item.id}
+                  from={{ opacity: 0, translateY: 10 }}
+                  animate={{ opacity: 1, translateY: 0 }}
+                  transition={{ type: 'timing', duration: 350, delay: index * 50 }}
+                  style={styles.accountCard}
+                >
+                  <TouchableOpacity
+                    style={styles.cardHeader}
+                    onPress={() => router.push({ pathname: '/(protected)/(tabs)/finance/transactions', params: { accountId: item.id } } as any)}
+                  >
+                    <View style={[styles.accountIconWrap, { backgroundColor: cfg.bg }]}>
+                      <Icon size={20} color={cfg.color} />
+                    </View>
+                    <Text style={styles.accountName} numberOfLines={1}>{item.name}</Text>
+                    <Text style={[styles.accountBalanceText, isDebt && styles.accountBalanceCredit]}>
+                      {showBalance
+                        ? (isDebt ? Math.abs(bal) : bal).toLocaleString('es-MX', { style: 'currency', currency: item.currency || 'MXN' })
+                        : '••••••'
+                      }
+                    </Text>
+                  </TouchableOpacity>
+
+                  {isDebt && item.credit_limit != null && (
+                    <View style={styles.creditInfo}>
+                      <View style={styles.creditLabels}>
+                        <Text style={styles.creditLabel}>Disponible</Text>
+                        <Text style={styles.creditLimitText}>
+                          {showBalance
+                            ? (Number(item.credit_limit) - Math.abs(bal)).toLocaleString('es-MX', { style: 'currency', currency: item.currency || 'MXN' })
+                            : '••••'
+                          }
+                        </Text>
+                      </View>
+                      <View style={styles.progressBarBg}>
+                        <View
+                          style={[
+                            styles.progressBarFill,
+                            {
+                              width: `${Math.max(0, Math.min(100, ((Number(item.credit_limit) - Math.abs(bal)) / Number(item.credit_limit)) * 100))}%`,
+                              backgroundColor: '#22c55e'
+                            }
+                          ]}
+                        />
+                      </View>
+                    </View>
+                  )}
+
+                  {!isDebt && (
+                    <Text style={styles.accountTypeLabel}>{cfg.label}</Text>
+                  )}
+
+                  <View style={styles.accountActions}>
+                    <TouchableOpacity onPress={() => openEditAccount(item)} style={styles.accountActionBtn}>
+                      <Pencil size={18} color="#94a3b8" />
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => confirmDeleteAccount(item)} style={styles.accountActionBtn}>
+                      <Trash2 size={18} color="#94a3b8" />
+                    </TouchableOpacity>
+                  </View>
+                </MotiView>
+              );
+            })}
+
+            <View style={styles.footerContainer}>
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLabel}>Balance Total</Text>
+                <Text style={styles.totalAmount}>
+                  {showBalance ? totalBalance.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' }) : '••••••'}
+                </Text>
+              </View>
+
+              <TouchableOpacity style={styles.addAccountButton} onPress={openNewAccountForm}>
+                <Text style={styles.addAccountButtonText}>Agregar Cuenta</Text>
+              </TouchableOpacity>
             </View>
-            <Text style={styles.addCardText}>Añadir cuenta</Text>
-          </TouchableOpacity>
-        </MotiView>
-        </>
+
+          </>
         )}
       </ScrollView>
 
@@ -786,17 +810,156 @@ export default function AccountsScreen() {
 }
 
 const styles = StyleSheet.create({
-  wrapper: { flex: 1, backgroundColor: '#f1f5f9' },
+  wrapper: { flex: 1, backgroundColor: '#ffffff' },
   container: { flex: 1 },
-  content: { padding: 20, paddingBottom: 40 },
+  content: { padding: 20, paddingBottom: 100 },
+  tabContainer: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
+    marginBottom: 24,
+    marginTop: 10,
+  },
+  tab: {
+    paddingVertical: 12,
+    marginRight: 24,
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  activeTab: {
+    borderBottomColor: '#0ea5e9',
+  },
+  tabText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#64748b',
+  },
+  activeTabText: {
+    color: '#0ea5e9',
+    fontWeight: '700',
+  },
+  accountCard: {
+    backgroundColor: '#fff',
+    borderRadius: 24,
+    padding: 20,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.03,
+    shadowRadius: 10,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#f8fafc',
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  accountIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  accountName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1e293b',
+    flex: 1,
+  },
+  accountBalanceText: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1e293b',
+  },
+  accountBalanceCredit: {
+    color: '#1e293b', // Neko keeps it dark
+  },
+  accountTypeLabel: {
+    fontSize: 13,
+    color: '#64748b',
+    marginTop: 12,
+  },
+  creditInfo: {
+    marginTop: 16,
+  },
+  creditLabels: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  creditLabel: {
+    fontSize: 12,
+    color: '#94a3b8',
+  },
+  creditLimitText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#334155',
+  },
+  progressBarBg: {
+    height: 4,
+    backgroundColor: '#f1f5f9',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: '100%',
+    borderRadius: 2,
+  },
+  accountActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 12,
+    gap: 12,
+  },
+  accountActionBtn: {
+    padding: 4,
+  },
+  footerContainer: {
+    marginTop: 24,
+    paddingTop: 24,
+    borderTopWidth: 1,
+    borderTopColor: '#f1f5f9',
+  },
+  totalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  totalLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  totalAmount: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#1e293b',
+  },
+  addAccountButton: {
+    backgroundColor: '#f0f9ff',
+    borderRadius: 20,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addAccountButtonText: {
+    color: '#0ea5e9',
+    fontSize: 15,
+    fontWeight: '700',
+  },
   formCard: {
     backgroundColor: '#fff',
-    borderRadius: 20,
+    borderRadius: 24,
     padding: 24,
     marginBottom: 24,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
     shadowRadius: 12,
     elevation: 4,
   },
@@ -868,7 +1031,6 @@ const styles = StyleSheet.create({
     marginBottom: 18,
     fontSize: 16,
     backgroundColor: '#f8fafc',
-    ...(Platform.OS === 'web' && { outlineStyle: 'none' }),
   },
   createErrorText: {
     fontSize: 14,
@@ -878,15 +1040,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 12,
   },
-  totalRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-    paddingHorizontal: 4,
-  },
-  totalLabel: { fontSize: 16, fontWeight: '700', color: '#0f172a' },
-  totalAmount: { fontSize: 18, fontWeight: '800', color: '#0f172a' },
   errorRow: {
     padding: 16,
     marginBottom: 16,
@@ -897,36 +1050,6 @@ const styles = StyleSheet.create({
   },
   errorText: { fontSize: 14, color: '#b91c1c', marginBottom: 4 },
   loadingText: { fontSize: 14, color: '#64748b', marginBottom: 16, paddingHorizontal: 4 },
-  accountCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 18,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  accountIconWrap: {
-    width: 52,
-    height: 52,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 16,
-  },
-  accountInfo: { flex: 1 },
-  accountName: { fontSize: 17, fontWeight: '700', color: '#0f172a' },
-  accountMeta: { fontSize: 13, color: '#64748b', marginTop: 2 },
-  accountBalance: { fontSize: 15, color: '#64748b', marginTop: 2 },
-  accountBalanceCredit: { color: '#dc2626', fontWeight: '600' },
-  goalButton: { marginTop: 8, alignSelf: 'flex-start' },
-  goalButtonText: { fontSize: 14, fontWeight: '600', color: '#0d9488' },
-  accountActions: { flexDirection: 'row', alignItems: 'center', marginTop: 10, gap: 8 },
-  accountActionBtn: { padding: 8 },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',
@@ -943,25 +1066,38 @@ const styles = StyleSheet.create({
   },
   modalTitle: { fontSize: 18, fontWeight: '700', color: '#0f172a', marginBottom: 16 },
   modalActions: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 16 },
-  addCard: {
+  manageCardsBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: '#f0f9ff',
+    padding: 16,
     borderRadius: 16,
-    padding: 22,
-    borderWidth: 2,
-    borderStyle: 'dashed',
-    borderColor: '#cbd5e1',
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#bae6fd',
+    elevation: 2,
+    shadowColor: '#2563eb',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
   },
-  addCardIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: '#f1f5f9',
+  manageCardsIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
   },
-  addCardText: { fontSize: 16, fontWeight: '600', color: '#64748b' },
+  manageCardsBtnText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#0369a1',
+  },
+  manageCardsBtnSub: {
+    fontSize: 12,
+    color: '#0ea5e9',
+    marginTop: 2,
+  },
 });

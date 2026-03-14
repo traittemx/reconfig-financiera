@@ -1,0 +1,5 @@
+$id,$permissions,$createdAt,$updatedAt,status,seats_used,period_start,period_end,membership_cost,notes,seats_total
+697d14670000c97d9933,,2026-01-31T15:25:39.608+00:00,2026-01-31T15:25:39.608+00:00,active,null,null,null,null,null,null
+69856998003583ddc2f5,"[""read(\""user:69853900001b5bfd41b3\"")"",""update(\""user:69853900001b5bfd41b3\"")"",""delete(\""user:69853900001b5bfd41b3\"")""]",2026-02-06T04:12:44.615+00:00,2026-02-06T04:12:44.615+00:00,trial,0,null,null,0,null,10
+69856d49001238acbf3e,"[""read(\""user:69853900001b5bfd41b3\"")"",""update(\""user:69853900001b5bfd41b3\"")"",""delete(\""user:69853900001b5bfd41b3\"")""]",2026-02-06T04:25:45.584+00:00,2026-02-06T04:25:45.584+00:00,active,0,2026-02-05,2027-02-05,4000,null,10
+69858ad4001df83d4aee,"[""read(\""user:69853900001b5bfd41b3\"")"",""update(\""user:69853900001b5bfd41b3\"")"",""delete(\""user:69853900001b5bfd41b3\"")""]",2026-02-06T06:31:49.173+00:00,2026-02-06T06:31:49.173+00:00,active,0,2026-02-06,2027-02-06,0,null,100

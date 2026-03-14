@@ -1,0 +1,50 @@
+name: Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: "Platform to build"
+        required: true
+        default: "android"
+        type: choice
+        options:
+          - android
+          - ios
+          - all
+      profile:
+        description: "Build profile"
+        required: true
+        default: "preview"
+        type: choice
+        options:
+          - preview
+          - production
+          - development
+
+jobs:
+  build:
+    name: EAS Build
+    runs-on: ubuntu-latest
+    env:
+      EXPO_TOKEN: Uj_o5HUyMYlIueepFMvlKJr3M0MgX1EyBCr_EH5s # ${{ secrets['EXPO_TOKEN'] }}
+    steps:
+      - name: 🏗 Setup repo
+        uses: actions/checkout@v4
+
+      - name: 🏗 Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18.x
+          cache: npm
+
+      - name: 📦 Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+
+      - name: 📦 Install dependencies
+        run: npm ci
+
+      - name: 🚀 Build
+        run: eas build --platform ${{ inputs.platform }} --profile ${{ inputs.profile }} --non-interactive

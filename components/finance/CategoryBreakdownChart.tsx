@@ -1,25 +1,31 @@
-import { View, Text, StyleSheet } from 'react-native';
 import { MotiView } from 'moti';
+import { StyleSheet, Text, View } from 'react-native';
 
 const CATEGORY_COLORS = ['#2563eb', '#dc2626', '#16a34a', '#7c3aed', '#ea580c', '#0d9488', '#be185d', '#64748b'];
 
-export type CategoryExpense = {
+export type CategoryBreakdownItem = {
   categoryName: string;
   amount: number;
   percentage: number;
   categoryColor?: string | null;
+  category_id?: string;
 };
 
 type Props = {
-  data: CategoryExpense[];
-  totalExpense: number;
+  data: CategoryBreakdownItem[];
+  total: number;
+  type: 'EXPENSE' | 'INCOME';
 };
 
-export function ExpenseByCategoryChart({ data, totalExpense }: Props) {
+export function CategoryBreakdownChart({ data, total, type }: Props) {
+  const isExpense = type === 'EXPENSE';
+
   if (data.length === 0) {
     return (
       <View style={styles.empty}>
-        <Text style={styles.emptyText}>No hay gastos por categoría este mes</Text>
+        <Text style={styles.emptyText}>
+          No hay {isExpense ? 'gastos' : 'ingresos'} por categoría este periodo
+        </Text>
       </View>
     );
   }
@@ -53,9 +59,9 @@ export function ExpenseByCategoryChart({ data, totalExpense }: Props) {
         );
       })}
       <View style={styles.totalRow}>
-        <Text style={styles.totalLabel}>Total gastos del mes</Text>
+        <Text style={styles.totalLabel}>Total {isExpense ? 'gastos' : 'ingresos'} del periodo</Text>
         <Text style={styles.totalAmount}>
-          {totalExpense.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}
+          {total.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}
         </Text>
       </View>
     </View>
@@ -116,3 +122,4 @@ const styles = StyleSheet.create({
   totalLabel: { fontSize: 14, fontWeight: '600', color: '#64748b' },
   totalAmount: { fontSize: 16, fontWeight: '800', color: '#0f172a' },
 });
+

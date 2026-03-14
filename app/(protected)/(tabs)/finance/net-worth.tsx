@@ -1,22 +1,22 @@
+import { useAuth } from '@/contexts/auth-context';
+import { LayoutGrid, Pencil, Plus, Trash2 } from '@tamagui/lucide-icons';
+import { MotiView } from 'moti';
 import { useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  ScrollView,
-  TextInput,
-  StyleSheet,
   Alert,
-  Platform,
-  TouchableOpacity,
   Modal,
+  Platform,
   Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { MotiView } from 'moti';
 import { Button } from 'tamagui';
-import { LayoutGrid, Pencil, Plus, Trash2 } from '@tamagui/lucide-icons';
-import { useAuth } from '@/contexts/auth-context';
-import { Permission, Role } from 'react-native-appwrite';
-import { listDocuments, createDocument, updateDocument, deleteDocument, COLLECTIONS, Query, type AppwriteDocument } from '@/lib/appwrite';
+
+import { COLLECTIONS, createDocument, deleteDocument, listDocuments, Query, updateDocument, type AppwriteDocument } from '@/lib/appwrite';
 
 type PhysicalAsset = {
   id: string;
@@ -69,11 +69,7 @@ export default function NetWorthScreen() {
     }
     setLoading(true);
     try {
-      const permissions = [
-        Permission.read(Role.user(profile.id)),
-        Permission.update(Role.user(profile.id)),
-        Permission.delete(Role.user(profile.id)),
-      ];
+
       await createDocument(
         COLLECTIONS.physical_assets,
         {
@@ -83,8 +79,7 @@ export default function NetWorthScreen() {
           amount: num,
           created_at: new Date().toISOString(),
         } as Record<string, unknown>,
-        undefined,
-        permissions
+        undefined
       );
     } catch (err) {
       setLoading(false);

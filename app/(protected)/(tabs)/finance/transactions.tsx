@@ -1,35 +1,30 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, ScrollView, TextInput, StyleSheet, Alert, Platform, TouchableOpacity, Modal } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useFocusEffect } from '@react-navigation/native';
-import { MotiView } from 'moti';
+import { PointsRewardModal } from '@/components/PointsRewardModal';
 import { useAuth } from '@/contexts/auth-context';
 import { usePoints } from '@/contexts/points-context';
-import { listDocuments, createDocument, updateDocument, deleteDocument, COLLECTIONS, Query, type AppwriteDocument } from '@/lib/appwrite';
+import { client, COLLECTIONS, createDocument, deleteDocument, listDocuments, Query, updateDocument, type AppwriteDocument } from '@/lib/appwrite';
+import { getCategoryColor, getCategoryIcon } from '@/lib/category-icons';
+import { cancelTransactionNotifications, scheduleTransactionNotification } from '@/lib/notifications';
+
 import { awardPoints } from '@/lib/points';
-import { PointsRewardModal } from '@/components/PointsRewardModal';
-import { NumericKeypad } from '@/components/finance/NumericKeypad';
-import { getDailyRecommendation } from '@/lib/pilot';
-import { Button } from 'tamagui';
-import { TrendingDown, TrendingUp, ArrowLeftRight, ChevronLeft, ChevronRight, Pencil, Trash2, AlertCircle, X, Calendar, Clock } from '@tamagui/lucide-icons';
-import DateTimePicker from '@react-native-community/datetimepicker';
-import { getCategoryIcon, getCategoryColor } from '@/lib/category-icons';
-import { scheduleTransactionNotification, cancelTransactionNotifications } from '@/lib/notifications';
-import { format, startOfMonth, endOfMonth, addMonths, subMonths, differenceInMonths } from 'date-fns';
+import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
+import { useFocusEffect } from '@react-navigation/native';
+import { AlertCircle, ArrowLeftRight, Calendar, Camera, Check, ChevronLeft, ChevronRight, Clock, Image as ImageIcon, Pencil, Trash2, TrendingDown, TrendingUp, X } from '@tamagui/lucide-icons';
+import { addMonths, differenceInMonths, endOfMonth, format, startOfMonth, subMonths } from 'date-fns';
 import { es } from 'date-fns/locale';
+import * as Haptics from 'expo-haptics';
+import * as ImagePicker from 'expo-image-picker';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { MotiView } from 'moti';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Alert, Image, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Button } from 'tamagui';
 
-type FormStep = 'amount' | 'account' | 'transfer_dest' | 'category' | 'label' | 'notes';
-
-const WIZARD_STEPS: Record<'EXPENSE' | 'INCOME' | 'TRANSFER', FormStep[]> = {
-  EXPENSE: ['amount', 'account', 'category', 'label', 'notes'],
-  INCOME: ['amount', 'account', 'category', 'notes'],
-  TRANSFER: ['amount', 'account', 'transfer_dest', 'notes'],
-};
+const INSFORGE_URL = process.env.EXPO_PUBLIC_INSFORGE_URL || 'https://m4kkgsr8.us-east.insforge.app';
 
 const HEADER_COLORS = {
-  EXPENSE: { bg: '#fda4af', text: '#9f1239' },
-  INCOME: { bg: '#86efac', text: '#166534' },
-  TRANSFER: { bg: '#93c5fd', text: '#1e40af' },
+  EXPENSE: { bg: '#fff1f2', text: '#be123c', primary: '#e11d48' },
+  INCOME: { bg: '#f0fdf4', text: '#15803d', primary: '#16a34a' },
+  TRANSFER: { bg: '#eff6ff', text: '#1d4ed8', primary: '#2563eb' },
 };
 
 type Account = { id: string; name: string };
@@ -50,6 +45,7 @@ type TransactionRow = {
   recurrence_total_occurrences?: number | null;
   expense_label?: string | null;
   is_scheduled?: boolean;
+  ticket_image_id?: string | null;
 };
 type Transaction = TransactionRow & {
   isRecurringInstance?: boolean;
@@ -70,28 +66,39 @@ const TX_KINDS = [
   { value: 'TRANSFER' as const, label: 'Transferencia', icon: ArrowLeftRight },
 ];
 
-const EXPENSE_LABELS = [
-  { value: 'DESEO' as const, label: 'Deseo' },
-  { value: 'LUJO' as const, label: 'Lujo' },
-  { value: 'NECESIDAD' as const, label: 'Necesidad' },
-];
+type Label = { id: string; name: string; color?: string | null };
 
-const RECURRENCE_INTERVAL_OPTIONS = [
-  { value: 1, label: 'Mensual' },
-  { value: 2, label: 'Bimestral' },
-  { value: 3, label: 'Trimestral' },
-  { value: 6, label: 'Semestral' },
-  { value: 12, label: 'Anual' },
+const RECURRENCE_PERIOD_OPTIONS = [
+  { value: 'WEEKLY', label: 'Semanal' },
+  { value: 'BIWEEKLY', label: 'Quincenal' },
+  { value: 'MONTHLY', label: 'Mensual' },
 ] as const;
 
-function expenseLabelDisplay(value: string | null | undefined): string {
-  const opt = EXPENSE_LABELS.find((l) => l.value === value);
-  return opt?.label ?? '';
+const DAYS_OF_WEEK = [
+  { value: 0, label: 'D' },
+  { value: 1, label: 'L' },
+  { value: 2, label: 'M' },
+  { value: 3, label: 'X' },
+  { value: 4, label: 'J' },
+  { value: 5, label: 'V' },
+  { value: 6, label: 'S' },
+];
+
+function expenseLabelDisplay(value: string | null | undefined, labels: Label[]): string {
+  if (!value) return '';
+  const opt = labels.find((l) => l.name === value);
+  return opt?.name ?? value;
 }
 
 export default function TransactionsScreen() {
   const router = useRouter();
-  const { new: newParam } = useLocalSearchParams<{ new?: string }>();
+  const { new: newParam, kind: kindParam, date: dateParam, accountId: accountIdParam, categoryId: categoryIdParam } = useLocalSearchParams<{
+    new?: string;
+    kind?: 'INCOME' | 'EXPENSE' | 'TRANSFER';
+    date?: string;
+    accountId?: string;
+    categoryId?: string;
+  }>();
   const { profile, session } = useAuth();
   const pointsContext = usePoints();
   const [rewardToShow, setRewardToShow] = useState<{ points: number; message: string } | null>(null);
@@ -107,25 +114,58 @@ export default function TransactionsScreen() {
   const [loading, setLoading] = useState(false);
   const [showForm, setShowForm] = useState(newParam === '1');
   const [isRecurring, setIsRecurring] = useState(false);
+  const [recurrencePeriod, setRecurrencePeriod] = useState<'WEEKLY' | 'BIWEEKLY' | 'MONTHLY'>('MONTHLY');
+  const [recurrenceDayOfWeek, setRecurrenceDayOfWeek] = useState(1); // 0-6
   const [recurrenceDayOfMonth, setRecurrenceDayOfMonth] = useState(1);
   const [recurrenceIntervalMonths, setRecurrenceIntervalMonths] = useState(1);
   const [recurrenceTotalOccurrences, setRecurrenceTotalOccurrences] = useState('');
   const [selectedMonth, setSelectedMonth] = useState(() => startOfMonth(new Date()));
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
-  const [expenseLabel, setExpenseLabel] = useState<'' | 'DESEO' | 'LUJO' | 'NECESIDAD'>('');
-  const [formStep, setFormStep] = useState<FormStep>('amount');
+  const [expenseLabels, setExpenseLabels] = useState<Label[]>([]);
+  const [expenseLabel, setExpenseLabel] = useState<string>('');
   const [occurredAt, setOccurredAt] = useState(() => new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [tempDate, setTempDate] = useState(() => new Date());
 
+  // Inventory state
+  const [isInventoryItem, setIsInventoryItem] = useState(false);
+  const [assetName, setAssetName] = useState('');
+  const [store, setStore] = useState('');
+  const [assetNotes, setAssetNotes] = useState('');
+
+  // Ticket image state
+  const [ticketImageUri, setTicketImageUri] = useState<string | null>(null);
+  const [ticketImageId, setTicketImageId] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [viewingTicketImageId, setViewingTicketImageId] = useState<string | null>(null);
+
+  // Filter state
+  const [filterAccountId, setFilterAccountId] = useState<string>('');
+  const [filterCategoryId, setFilterCategoryId] = useState<string>('');
+
+  useEffect(() => {
+    if (accountIdParam) {
+      setFilterAccountId(accountIdParam);
+    }
+    if (categoryIdParam) {
+      setFilterCategoryId(categoryIdParam);
+    }
+  }, [accountIdParam, categoryIdParam]);
+
   useEffect(() => {
     if (newParam === '1') {
       setShowForm(true);
-      setFormStep('amount');
-      setOccurredAt(new Date());
+      if (dateParam) {
+        setOccurredAt(new Date(dateParam));
+      } else {
+        setOccurredAt(new Date());
+      }
+      if (kindParam && (kindParam === 'INCOME' || kindParam === 'EXPENSE' || kindParam === 'TRANSFER')) {
+        setKind(kindParam);
+      }
     }
-  }, [newParam]);
+  }, [newParam, kindParam, dateParam]);
 
   useEffect(() => {
     if (editingTx) {
@@ -136,16 +176,92 @@ export default function TransactionsScreen() {
       setCategoryId(editingTx.category_id ?? '');
       setTransferAccountId(editingTx.transfer_account_id ?? '');
       setNote(editingTx.note ?? '');
-      setExpenseLabel((editingTx.kind === 'EXPENSE' && (editingTx.expense_label === 'DESEO' || editingTx.expense_label === 'LUJO' || editingTx.expense_label === 'NECESIDAD')) ? editingTx.expense_label : '');
+      setExpenseLabel(editingTx.kind === 'EXPENSE' ? (editingTx.expense_label ?? '') : '');
       setOccurredAt(new Date(editingTx.occurred_at));
-      const isRecurringTx = editingTx.is_recurring || ('recurringTemplateId' in editingTx && editingTx.recurringTemplateId);
-      setIsRecurring(!!isRecurringTx);
+      setRecurrencePeriod((editingTx.recurrence_period as any) ?? 'MONTHLY');
+      setRecurrenceDayOfWeek(editingTx.recurrence_day_of_month ?? 1); // Using same field for day of week if period is weekly
       setRecurrenceDayOfMonth(editingTx.recurrence_day_of_month ?? 1);
       setRecurrenceIntervalMonths(editingTx.recurrence_interval_months ?? 1);
       setRecurrenceTotalOccurrences(editingTx.recurrence_total_occurrences != null ? String(editingTx.recurrence_total_occurrences) : '');
-      setFormStep('amount');
+      setTicketImageId(editingTx.ticket_image_id ?? null);
+      setTicketImageUri(null);
     }
   }, [editingTx]);
+
+  const pickImage = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permiso denegado', 'Se necesita permiso para acceder a la cámara.');
+      return;
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      quality: 0.7,
+    });
+
+    if (!result.canceled) {
+      setTicketImageUri(result.assets[0].uri);
+    }
+  };
+
+  const uploadImage = async (uri: string): Promise<string | null> => {
+    setIsUploading(true);
+    try {
+      const fileName = `ticket_${Date.now()}.jpg`;
+      const response = await fetch(uri);
+      const blob = await response.blob();
+
+      const { data, error } = await client.storage
+        .from('tickets')
+        .upload(fileName, blob);
+
+      if (error) throw error;
+      return (data as any)?.id || fileName;
+    } catch (err) {
+      console.error('[transactions] uploadImage error', err);
+      Alert.alert('Error', 'No se pudo subir la imagen del ticket.');
+      return null;
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const openAndroidPicker = useCallback((mode: 'date' | 'time', initialDate: Date) => {
+    DateTimePickerAndroid.open({
+      value: initialDate,
+      onChange: (event, date) => {
+        if (event.type === 'set' && date) {
+          if (mode === 'date') {
+            const next = new Date(date);
+            // Preserve time if editing
+            next.setHours(initialDate.getHours(), initialDate.getMinutes());
+            openAndroidPicker('time', next);
+          } else {
+            setOccurredAt(date);
+            setShowDatePicker(false);
+          }
+        } else if (event.type === 'dismissed') {
+          setShowDatePicker(false);
+        }
+      },
+      mode,
+      display: 'default',
+      is24Hour: false,
+    });
+  }, []);
+
+  const handleDateChange = useCallback((event: any, date?: Date) => {
+    if (Platform.OS === 'ios') {
+      if (date) setTempDate(date);
+    }
+  }, []);
+
+  const handleDateConfirm = useCallback(() => {
+    setOccurredAt(tempDate);
+    setShowDatePicker(false);
+  }, [tempDate]);
 
   useEffect(() => {
     if (!profile?.id) return;
@@ -154,13 +270,45 @@ export default function TransactionsScreen() {
         Query.equal('user_id', [profile.id]),
         Query.limit(200),
       ]);
-      setAccounts(accData.map((d) => ({ id: (d as { $id?: string }).$id ?? (d as { id?: string }).id ?? '', name: (d.name as string) ?? '' })) as Account[]);
+
+      const { data: allTx } = await listDocuments<AppwriteDocument>(COLLECTIONS.transactions, [
+        Query.equal('user_id', [profile.id]),
+        Query.limit(5000),
+      ]);
+
+      setAccounts(accData.map((d) => {
+        const openingBalance = Number(d.opening_balance || 0);
+        const isDebt = d.type === 'CREDIT' || d.type === 'CREDIT_CARD';
+
+        let currentBalance = isDebt ? -openingBalance : openingBalance;
+        allTx.filter(t => t.account_id === (d as { $id?: string }).$id || t.account_id === (d as { id?: string }).id).forEach(t => {
+          const amt = Number(t.amount);
+          if (t.kind === 'INCOME') currentBalance += isDebt ? -amt : amt;
+          else if (t.kind === 'EXPENSE' || t.kind === 'TRANSFER') currentBalance += isDebt ? amt : -amt;
+        });
+        // Also secondary side of transfers
+        allTx.filter(t => t.kind === 'TRANSFER' && (t.transfer_account_id === (d as { $id?: string }).$id || t.transfer_account_id === (d as { id?: string }).id)).forEach(t => {
+          currentBalance += isDebt ? -Number(t.amount) : Number(t.amount);
+        });
+
+        return {
+          id: (d as { $id?: string }).$id ?? (d as { id?: string }).id ?? '',
+          name: (d.name as string) ?? '',
+          balance: currentBalance,
+        };
+      }) as (Account & { balance: number })[]);
       const { data: catData } = await listDocuments<AppwriteDocument>(COLLECTIONS.categories, [
         Query.equal('user_id', [profile.id]),
         Query.equal('kind', ['INCOME', 'EXPENSE']),
         Query.limit(500),
       ]);
       setCategories(catData.map((d) => ({ id: (d as { $id?: string }).$id ?? (d as { id?: string }).id ?? '', name: (d.name as string) ?? '', kind: (d.kind as string) ?? '', icon: (d.icon as string) ?? null, color: (d.color as string) ?? null })) as Category[]);
+
+      const { data: labelData } = await listDocuments<AppwriteDocument>(COLLECTIONS.transaction_labels, [
+        Query.equal('user_id', [profile.id]),
+        Query.limit(100),
+      ]);
+      setExpenseLabels(labelData.map((d) => ({ id: (d as { $id?: string }).$id ?? (d as { id?: string }).id ?? '', name: (d.name as string) ?? '', color: (d.color as string) ?? null })) as Label[]);
     })();
   }, [profile?.id]);
 
@@ -182,6 +330,7 @@ export default function TransactionsScreen() {
     recurrence_interval_months: doc.recurrence_interval_months as number | null,
     recurrence_total_occurrences: doc.recurrence_total_occurrences as number | null,
     expense_label: doc.expense_label as string | null,
+    ticket_image_id: doc.ticket_image_id as string | null,
   });
 
   const fetchTransactions = useCallback(async () => {
@@ -207,32 +356,76 @@ export default function TransactionsScreen() {
       const monthStartDate = startOfMonth(selectedMonth);
       const monthEndDate = endOfMonth(selectedMonth);
       const virtuals: Transaction[] = [];
+
       for (const t of templates) {
-        const day = t.recurrence_day_of_month ?? 1;
         const templateStart = new Date(t.occurred_at);
-        const maxDay = monthEndDate.getDate();
-        const safeDay = Math.min(day, maxDay);
-        const d = new Date(monthStartDate.getFullYear(), monthStartDate.getMonth(), safeDay);
-        if (d < templateStart) continue;
         const start = startOfMonth(templateStart);
-        const occurrenceIndex = differenceInMonths(monthStartDate, start) + 1;
-        if (t.recurrence_total_occurrences != null && occurrenceIndex > t.recurrence_total_occurrences) continue;
+        const diffMonths = differenceInMonths(monthStartDate, start);
+
+        const period = t.recurrence_period ?? 'MONTHLY';
         const interval = t.recurrence_interval_months ?? 1;
-        const monthlyAmount = Math.round((Number(t.amount) / interval) * 100) / 100;
-        virtuals.push({
-          ...t,
-          id: `recurring-${t.id}-${format(d, 'yyyy-MM-dd')}`,
-          amount: monthlyAmount,
-          occurred_at: d.toISOString(),
-          isRecurringInstance: true,
-          virtualDate: d.toISOString(),
-          recurringTemplateId: t.id,
-          templateAmount: Number(t.amount),
-        });
+
+        const generateVirtual = (date: Date) => {
+          // Duplication Check: Skip if a real transaction exists on the same day with same kind, account and similar amount
+          const isDuplicate = realRows.some((r) =>
+            format(new Date(r.occurred_at), 'yyyy-MM-dd') === format(date, 'yyyy-MM-dd') &&
+            r.kind === t.kind &&
+            r.account_id === t.account_id &&
+            Math.abs(r.amount - Number(t.amount)) < 0.01
+          );
+          if (isDuplicate) return null;
+
+          const monthlyAmount = period === 'MONTHLY' ? Math.round((Number(t.amount) / interval) * 100) / 100 : Number(t.amount);
+          return {
+            ...t,
+            id: `recurring-${t.id}-${format(date, 'yyyy-MM-dd')}`,
+            amount: monthlyAmount,
+            occurred_at: date.toISOString(),
+            isRecurringInstance: true,
+            virtualDate: date.toISOString(),
+            recurringTemplateId: t.id,
+            templateAmount: Number(t.amount),
+          };
+        };
+
+        if (period === 'WEEKLY') {
+          const dow = t.recurrence_day_of_month ?? 1;
+          let d = new Date(monthStartDate);
+          while (d <= monthEndDate) {
+            if (d.getDay() === dow && d >= templateStart) {
+              const v = generateVirtual(new Date(d));
+              if (v) virtuals.push(v);
+            }
+            d.setDate(d.getDate() + 1);
+          }
+        } else if (period === 'BIWEEKLY') {
+          // 15th and last day
+          [15, monthEndDate.getDate()].forEach((day) => {
+            const d = new Date(monthStartDate.getFullYear(), monthStartDate.getMonth(), day);
+            if (d >= templateStart) {
+              const v = generateVirtual(d);
+              if (v) virtuals.push(v);
+            }
+          });
+        } else {
+          // MONTHLY
+          if (diffMonths >= 0 && diffMonths % interval === 0) {
+            const occurrenceIndex = Math.floor(diffMonths / interval) + 1;
+            if (t.recurrence_total_occurrences == null || occurrenceIndex <= t.recurrence_total_occurrences) {
+              const day = t.recurrence_day_of_month ?? 1;
+              const maxDay = monthEndDate.getDate();
+              const safeDay = Math.min(day, maxDay);
+              const d = new Date(monthStartDate.getFullYear(), monthStartDate.getMonth(), safeDay);
+              if (d >= templateStart) {
+                const v = generateVirtual(d);
+                if (v) virtuals.push(v);
+              }
+            }
+          }
+        }
       }
-      const combined: Transaction[] = [...realRows, ...virtuals];
-      combined.sort((a, b) => new Date(b.occurred_at).getTime() - new Date(a.occurred_at).getTime());
-      setTransactions(combined);
+
+      setTransactions([...realRows, ...virtuals]);
     } catch (e) {
       console.error('[transactions] fetchTransactions error', e);
       setTransactions([]);
@@ -249,8 +442,19 @@ export default function TransactionsScreen() {
     }, [fetchTransactions])
   );
 
+  const filteredTransactions = React.useMemo(() => {
+    let result = [...transactions];
+    if (filterAccountId) {
+      result = result.filter(t => t.account_id === filterAccountId || t.transfer_account_id === filterAccountId);
+    }
+    if (filterCategoryId) {
+      result = result.filter(t => t.category_id === filterCategoryId);
+    }
+    return result.sort((a, b) => new Date(b.occurred_at).getTime() - new Date(a.occurred_at).getTime());
+  }, [transactions, filterAccountId, filterCategoryId]);
+
   function getValidationMessage(): string | null {
-    const needCategory = kind === 'EXPENSE' && categories.filter((c) => c.kind === 'EXPENSE').length > 0;
+    const needCategory = kind === 'EXPENSE' && categories.filter((c: Category) => c.kind === 'EXPENSE').length > 0;
     const parts: string[] = [];
     if (!amount?.trim()) parts.push('El monto no puede estar vacío.');
     else {
@@ -261,69 +465,40 @@ export default function TransactionsScreen() {
     if (needCategory && !categoryId) parts.push('Elige una categoría.');
     if (kind === 'EXPENSE' && !expenseLabel) parts.push('Selecciona si es Deseo, Lujo o Necesidad.');
     if (kind === 'TRANSFER' && !transferAccountId) parts.push('Elige la cuenta destino.');
+
+    if (kind === 'EXPENSE' && isInventoryItem) {
+      if (!assetName.trim()) parts.push('Ingresa el nombre del bien para el inventario.');
+      if (!store.trim()) parts.push('Ingresa la tienda donde se compró el bien.');
+    }
+
     return parts.length ? parts.join(' ') : null;
-  }
-
-  const steps = WIZARD_STEPS[kind];
-  const stepIndex = steps.indexOf(formStep);
-  const nextStep = stepIndex >= 0 && stepIndex < steps.length - 1 ? steps[stepIndex + 1] : null;
-  const prevStep = stepIndex > 0 ? steps[stepIndex - 1] : null;
-
-  function goNext() {
-    setValidationError(null);
-    if (formStep === 'amount') {
-      const n = parseFloat(amount.replace(',', '.'));
-      if (!amount?.trim() || Number.isNaN(n) || n <= 0) {
-        setValidationError('El monto debe ser mayor a 0.');
-        return;
-      }
-    }
-    if (formStep === 'account' && !accountId) {
-      setValidationError('Elige una cuenta.');
-      return;
-    }
-    if (formStep === 'transfer_dest' && !transferAccountId) {
-      setValidationError('Elige la cuenta destino.');
-      return;
-    }
-    if (formStep === 'category' && kind !== 'TRANSFER') {
-      const needCat = kind === 'EXPENSE' && categories.filter((c) => c.kind === 'EXPENSE').length > 0;
-      if (needCat && !categoryId) {
-        setValidationError('Elige una categoría.');
-        return;
-      }
-    }
-    if (formStep === 'label' && !expenseLabel) {
-      setValidationError('Selecciona Deseo, Lujo o Necesidad.');
-      return;
-    }
-    if (nextStep) setFormStep(nextStep);
-    else if (formStep === 'notes') {
-      if (editingTx) updateTransaction();
-      else createTransaction();
-    }
-  }
-
-  function goBack() {
-    setValidationError(null);
-    if (prevStep) setFormStep(prevStep);
-    else closeWizard();
   }
 
   function closeWizard() {
     setShowForm(false);
     setEditingTx(null);
-    setFormStep('amount');
     setValidationError(null);
-  }
-
-  function getNextButtonLabel(): string {
-    if (!nextStep) return editingTx ? 'Guardar cambios' : 'Guardar';
-    return 'Siguiente';
+    setTicketImageUri(null);
+    setTicketImageId(null);
   }
 
   function getRecurrenceStartDate(): Date {
     const now = new Date();
+    if (recurrencePeriod === 'WEEKLY') {
+      // Find the first occurrence of recurrenceDayOfWeek starting from today
+      let d = new Date(now);
+      while (d.getDay() !== recurrenceDayOfWeek) {
+        d.setDate(d.getDate() + 1);
+      }
+      return d;
+    }
+    if (recurrencePeriod === 'BIWEEKLY') {
+      // 15th or last day of current month
+      const day15 = new Date(now.getFullYear(), now.getMonth(), 15);
+      if (day15 >= now) return day15;
+      return endOfMonth(now);
+    }
+    // MONTHLY
     const day = recurrenceDayOfMonth;
     const maxDayThisMonth = endOfMonth(now).getDate();
     const thisMonthDate = new Date(now.getFullYear(), now.getMonth(), Math.min(day, maxDayThisMonth));
@@ -352,9 +527,16 @@ export default function TransactionsScreen() {
     setLoading(true);
     try {
       const amountNum = parseFloat(amount.replace(',', '.'));
-      const occurredAtIso = isRecurring ? getRecurrenceStartDate().toISOString() : occurredAt.toISOString();
       const occurredAtDate = isRecurring ? getRecurrenceStartDate() : occurredAt;
+      const occurredAtIso = occurredAtDate.toISOString();
       const now = new Date();
+
+      let finalTicketId = ticketImageId;
+      if (ticketImageUri) {
+        const uploadedId = await uploadImage(ticketImageUri);
+        if (uploadedId) finalTicketId = uploadedId;
+      }
+
       // If the date is in the future, mark as scheduled
       const isScheduled = occurredAtDate > now;
       const payload = {
@@ -368,9 +550,9 @@ export default function TransactionsScreen() {
         note: note.trim() || null,
         transfer_account_id: kind === 'TRANSFER' ? transferAccountId : null,
         is_recurring: isRecurring,
-        recurrence_period: isRecurring ? 'MONTHLY' : null,
-        recurrence_day_of_month: isRecurring ? recurrenceDayOfMonth : null,
-        recurrence_interval_months: isRecurring ? recurrenceIntervalMonths : 1,
+        recurrence_period: isRecurring ? recurrencePeriod : null,
+        recurrence_day_of_month: isRecurring ? (recurrencePeriod === 'WEEKLY' ? recurrenceDayOfWeek : recurrenceDayOfMonth) : null,
+        recurrence_interval_months: isRecurring && recurrencePeriod === 'MONTHLY' ? Math.max(1, recurrenceIntervalMonths) : 1,
         recurrence_total_occurrences: isRecurring && recurrenceTotalOccurrences.trim() ? (() => {
           const n = parseInt(recurrenceTotalOccurrences.trim(), 10);
           return Number.isFinite(n) && n >= 1 ? n : null;
@@ -378,6 +560,7 @@ export default function TransactionsScreen() {
         expense_label: kind === 'EXPENSE' ? expenseLabel : null,
         is_scheduled: isScheduled,
         created_at: new Date().toISOString(),
+        ticket_image_id: finalTicketId,
       };
       const result = await createDocument(COLLECTIONS.transactions, payload as Record<string, unknown>);
       const newId = (result as { $id?: string }).$id ?? (result as { id?: string }).id;
@@ -386,18 +569,32 @@ export default function TransactionsScreen() {
         Alert.alert('Error al guardar', 'La transacción no se guardó. Revisa permisos o intenta de nuevo.');
         return;
       }
+
+      // If inventory item, create the record
+      if (kind === 'EXPENSE' && isInventoryItem) {
+        try {
+          await createDocument(COLLECTIONS.inventory_items, {
+            user_id: userId,
+            org_id: profile.org_id,
+            transaction_id: newId,
+            name: assetName.trim(),
+            store: store.trim(),
+            notes: assetNotes.trim() || null,
+            amount: Math.abs(amountNum),
+            purchase_date: occurredAtIso,
+            created_at: new Date().toISOString(),
+          });
+        } catch (invErr) {
+          console.error('[transactions] error creating inventory item', invErr);
+          // We don't block the transaction if inventory creation fails, but maybe alert?
+          Alert.alert('Atención', 'Se guardó la transacción pero hubo un error al registrar en Inventario.');
+        }
+      }
       let earnedPoints = 0;
       let hasDoubleReward = false;
       if (kind === 'EXPENSE') {
         const p1 = await awardPoints(profile.org_id, userId, 'CREATE_EXPENSE', 'transactions', newId);
         earnedPoints += p1;
-        const txDate = new Date(occurredAtIso);
-        const dayRec = await getDailyRecommendation(userId, profile.org_id, txDate);
-        if (dayRec?.state === 'CONTAINMENT') {
-          const p2 = await awardPoints(profile.org_id, userId, 'CRITICAL_DAY_LOGGED', 'pilot_critical_day', format(txDate, 'yyyy-MM-dd'));
-          earnedPoints += p2;
-          hasDoubleReward = p2 > 0;
-        }
       }
       if (kind === 'INCOME') {
         const p = await awardPoints(profile.org_id, userId, 'CREATE_INCOME', 'transactions', newId);
@@ -407,10 +604,10 @@ export default function TransactionsScreen() {
         const message = hasDoubleReward ? '¡Buen trabajo!' : kind === 'EXPENSE' ? '¡Gasto registrado!' : kind === 'INCOME' ? '¡Ingreso registrado!' : '¡Buen trabajo!';
         setRewardToShow({ points: earnedPoints, message });
       }
-      
+
       // Schedule notification for scheduled transactions
       if (isScheduled && newId) {
-        const categoryName = categoryId ? categories.find((c) => c.id === categoryId)?.name : undefined;
+        const categoryName = categoryId ? categories.find((c: Category) => c.id === categoryId)?.name : undefined;
         await scheduleTransactionNotification({
           transactionId: newId,
           kind: kind as 'EXPENSE' | 'INCOME' | 'TRANSFER',
@@ -419,19 +616,9 @@ export default function TransactionsScreen() {
           scheduledDate: occurredAtDate,
         });
       }
-      
-      setAmount('');
-      setCategoryId('');
-      setTransferAccountId('');
-      setNote('');
-      setExpenseLabel('');
-      setIsRecurring(false);
-      setRecurrenceDayOfMonth(1);
-      setRecurrenceIntervalMonths(1);
-      setRecurrenceTotalOccurrences('');
+
       setShowForm(false);
       setEditingTx(null);
-      setFormStep('amount');
       await fetchTransactions();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Error inesperado al guardar.';
@@ -454,36 +641,45 @@ export default function TransactionsScreen() {
     try {
       const amountNum = parseFloat(amount.replace(',', '.'));
       const realId = 'recurringTemplateId' in editingTx && editingTx.recurringTemplateId ? editingTx.recurringTemplateId : editingTx.id;
+      const isTemplateEdit = 'recurringTemplateId' in editingTx && editingTx.recurringTemplateId;
+
       const payload: Record<string, unknown> = {
         account_id: accountId,
         kind,
         amount: Math.abs(amountNum),
-        occurred_at: new Date(editingTx.occurred_at).toISOString(),
+        occurred_at: isTemplateEdit ? new Date(editingTx.occurred_at).toISOString() : occurredAt.toISOString(),
         category_id: kind === 'TRANSFER' ? null : categoryId || null,
         note: note.trim() || null,
         transfer_account_id: kind === 'TRANSFER' ? transferAccountId : null,
         expense_label: kind === 'EXPENSE' ? expenseLabel : null,
+        ticket_image_id: ticketImageId,
       };
-      if (editingTx.is_recurring || ('recurringTemplateId' in editingTx && editingTx.recurringTemplateId)) {
+
+      if (ticketImageUri) {
+        const uploadedId = await uploadImage(ticketImageUri);
+        if (uploadedId) payload.ticket_image_id = uploadedId;
+      }
+
+      if (isRecurring) {
         payload.is_recurring = true;
-        payload.recurrence_period = 'MONTHLY';
-        payload.recurrence_day_of_month = recurrenceDayOfMonth;
-        payload.recurrence_interval_months = recurrenceIntervalMonths;
+        payload.recurrence_period = recurrencePeriod;
+        payload.recurrence_day_of_month = recurrencePeriod === 'WEEKLY' ? recurrenceDayOfWeek : recurrenceDayOfMonth;
+        payload.recurrence_interval_months = recurrencePeriod === 'MONTHLY' ? Math.max(1, recurrenceIntervalMonths) : 1;
         const totalOcc = recurrenceTotalOccurrences.trim() ? (() => {
           const n = parseInt(recurrenceTotalOccurrences.trim(), 10);
           return Number.isFinite(n) && n >= 1 ? n : null;
         })() : null;
         payload.recurrence_total_occurrences = totalOcc;
+      } else {
+        payload.is_recurring = false;
+        payload.recurrence_period = null;
+        payload.recurrence_day_of_month = null;
+        payload.recurrence_interval_months = 1;
+        payload.recurrence_total_occurrences = null;
       }
       await updateDocument(COLLECTIONS.transactions, realId, payload);
-      setAmount('');
-      setCategoryId('');
-      setTransferAccountId('');
-      setNote('');
-      setExpenseLabel('');
       setShowForm(false);
       setEditingTx(null);
-      setFormStep('amount');
       await fetchTransactions();
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Error inesperado.';
@@ -495,12 +691,22 @@ export default function TransactionsScreen() {
   }
 
   function confirmDelete(item: Transaction) {
-    const isVirtual = 'isRecurringInstance' in item && item.isRecurringInstance;
-    if (isVirtual) {
-      Alert.alert('Eliminar plantilla', 'Las instancias recurrentes no se eliminan una a una. Elimina la plantilla recurrente desde la transacción original.');
+    const amountToShow = 'templateAmount' in item && item.templateAmount != null ? item.templateAmount : item.amount;
+    const realId = 'recurringTemplateId' in item && item.recurringTemplateId ? item.recurringTemplateId : item.id;
+    const isRecurringOrTemplate = item.is_recurring || ('recurringTemplateId' in item && item.recurringTemplateId);
+
+    if (isRecurringOrTemplate) {
+      Alert.alert(
+        'Eliminar serie recurrente',
+        `¿Eliminar esta serie recurrente y todas sus transacciones futuras?`,
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          { text: 'Eliminar serie', style: 'destructive', onPress: () => deleteTransaction(item) },
+        ]
+      );
       return;
     }
-    const amountToShow = 'templateAmount' in item && item.templateAmount != null ? item.templateAmount : item.amount;
+
     Alert.alert(
       'Eliminar transacción',
       `¿Eliminar esta transacción de ${Number(amountToShow).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}?`,
@@ -512,17 +718,14 @@ export default function TransactionsScreen() {
   }
 
   async function deleteTransaction(item: Transaction) {
-    const isVirtual = 'isRecurringInstance' in item && item.isRecurringInstance;
-    if (isVirtual) return;
-    if (!profile?.id) return;
-    setLoading(true);
+    const realId = 'recurringTemplateId' in item && item.recurringTemplateId ? item.recurringTemplateId : item.id;
     try {
       // Cancel any scheduled notifications for this transaction
       if (item.is_scheduled) {
-        await cancelTransactionNotifications(item.id);
+        await cancelTransactionNotifications(realId);
       }
-      
-      await deleteDocument(COLLECTIONS.transactions, item.id);
+
+      await deleteDocument(COLLECTIONS.transactions, realId);
       if (editingTx?.id === item.id) {
         setShowForm(false);
         setEditingTx(null);
@@ -542,16 +745,27 @@ export default function TransactionsScreen() {
     }
   }
 
-  const categoriesForKind = categories.filter((c) => c.kind === kind);
+  const categoriesForKind = categories.filter((c: Category) => c.kind === kind);
   const showCategoryPicker = kind !== 'TRANSFER';
 
   return (
     <View style={styles.wrapper}>
+      <View style={styles.tabsContainer}>
+        <TouchableOpacity style={[styles.tab, styles.activeTab]}>
+          <Text style={styles.activeTabText}>Lista</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.tab}
+          onPress={() => router.push('/(protected)/(tabs)/finance/calendar')}
+        >
+          <Text style={styles.tabText}>Calendario</Text>
+        </TouchableOpacity>
+      </View>
       <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <MotiView
           from={{ opacity: 0, translateY: 8 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'timing', duration: 400 }}
+          transition={{ duration: 400 }}
         >
           <Button
             onPress={() => {
@@ -566,7 +780,6 @@ export default function TransactionsScreen() {
                 setNote('');
                 setExpenseLabel('');
                 setKind('EXPENSE');
-                setFormStep('amount');
                 setOccurredAt(new Date());
                 setIsRecurring(false);
                 setRecurrenceDayOfMonth(1);
@@ -583,16 +796,59 @@ export default function TransactionsScreen() {
           </Button>
         </MotiView>
 
+        {!showForm && (
+          <View style={styles.filtersContainer}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtersScroll}>
+              <TouchableOpacity
+                onPress={() => setFilterAccountId('')}
+                style={[styles.filterChip, !filterAccountId && styles.filterChipActive]}
+              >
+                <Text style={[styles.filterChipText, !filterAccountId && styles.filterChipTextActive]}>Todas las cuentas</Text>
+              </TouchableOpacity>
+              {accounts.map(acc => (
+                <TouchableOpacity
+                  key={acc.id}
+                  onPress={() => setFilterAccountId(acc.id === filterAccountId ? '' : acc.id)}
+                  style={[styles.filterChip, filterAccountId === acc.id && styles.filterChipActive]}
+                >
+                  <Text style={[styles.filterChipText, filterAccountId === acc.id && styles.filterChipTextActive]}>{acc.name}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtersScroll}>
+              <TouchableOpacity
+                onPress={() => setFilterCategoryId('')}
+                style={[styles.filterChip, !filterCategoryId && styles.filterChipActive]}
+              >
+                <Text style={[styles.filterChipText, !filterCategoryId && styles.filterChipTextActive]}>Todas las categorías</Text>
+              </TouchableOpacity>
+              {categories.map(cat => (
+                <TouchableOpacity
+                  key={cat.id}
+                  onPress={() => setFilterCategoryId(cat.id === filterCategoryId ? '' : cat.id)}
+                  style={[styles.filterChip, filterCategoryId === cat.id && styles.filterChipActive]}
+                >
+                  <Text style={[styles.filterChipText, filterCategoryId === cat.id && styles.filterChipTextActive]}>{cat.name}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        )}
+
         <Modal
           visible={showForm}
           animationType="slide"
           presentationStyle="pageSheet"
-          onRequestClose={goBack}
+          onRequestClose={closeWizard}
         >
-          <View style={styles.wizardWrap}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={styles.wizardWrap}
+          >
             <View style={[styles.wizardHeader, { backgroundColor: HEADER_COLORS[kind].bg }]}>
               <View style={styles.wizardHeaderRow}>
-                <TouchableOpacity onPress={goBack} style={styles.wizardClose} accessibilityLabel="Cerrar">
+                <TouchableOpacity onPress={closeWizard} style={styles.wizardClose} accessibilityLabel="Cerrar">
                   <X size={24} color={HEADER_COLORS[kind].text} />
                 </TouchableOpacity>
                 <View style={styles.wizardHeaderCenter}>
@@ -600,19 +856,61 @@ export default function TransactionsScreen() {
                     {TX_KINDS.map(({ value, label }) => (
                       <TouchableOpacity
                         key={value}
-                        onPress={() => { setValidationError(null); setKind(value); if (value !== 'EXPENSE') setExpenseLabel(''); setFormStep('amount'); }}
+                        onPress={() => {
+                          setValidationError(null);
+                          setKind(value);
+                          if (value !== 'EXPENSE') setExpenseLabel('');
+                        }}
                         style={[styles.wizardKindChip, kind === value && styles.wizardKindChipActive]}
                       >
                         <Text style={[styles.wizardKindText, kind === value && styles.wizardKindTextActive]}>{label}</Text>
                       </TouchableOpacity>
                     ))}
                   </View>
-                  <Text style={[styles.wizardAmount, { color: HEADER_COLORS[kind].text }]}>
-                    {kind === 'EXPENSE' ? '–' : ''}{amount || '0'}
+                  <View style={styles.amountInputContainer}>
+                    <Text style={[styles.amountCurrency, { color: HEADER_COLORS[kind].text }]}>
+                      {kind === 'EXPENSE' ? '–' : ''}$
+                    </Text>
+                    <TextInput
+                      style={[styles.wizardAmountInput, { color: HEADER_COLORS[kind].text }]}
+                      value={amount}
+                      onChangeText={(v) => { setValidationError(null); setAmount(v); }}
+                      keyboardType="decimal-pad"
+                      placeholder="0"
+                      placeholderTextColor="rgba(0,0,0,0.2)"
+                      autoFocus={newParam === '1' && !editingTx}
+                    />
+                  </View>
+                  <Text style={[styles.wizardDate, { color: HEADER_COLORS[kind].text }]}>
+                    {format(occurredAt, "EEE, d MMM yyyy h:mm a", { locale: es })}
                   </Text>
-                  {formStep !== 'amount' && (
-                    <Text style={[styles.wizardDate, { color: HEADER_COLORS[kind].text }]}>
-                      {format(occurredAt, "EEE, d MMM yyyy h:mm a", { locale: es })}
+
+                  {/* Projected Balance Display */}
+                  {accountId && (
+                    <View style={styles.projectedBalanceContainer}>
+                      <Text style={[styles.projectedBalanceLabel, { color: HEADER_COLORS[kind].text }]}>
+                        BALANCE PROYECTADO:
+                      </Text>
+                      <Text style={[styles.projectedBalanceValue, { color: HEADER_COLORS[kind].text }]}>
+                        {(() => {
+                          const acc = (accounts as (Account & { balance: number })[]).find(a => a.id === accountId);
+                          if (!acc) return '$0.00';
+                          const curBal = acc.balance || 0;
+                          const inputAmount = parseFloat(amount.replace(',', '.')) || 0;
+                          let projected = curBal;
+
+                          if (kind === 'INCOME') projected += inputAmount;
+                          else if (kind === 'EXPENSE' || kind === 'TRANSFER') projected -= inputAmount;
+
+                          return projected.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
+                        })()}
+                      </Text>
+                    </View>
+                  )}
+
+                  {(isRecurring || (editingTx && (editingTx.is_recurring || ('recurringTemplateId' in editingTx && editingTx.recurringTemplateId)))) && (
+                    <Text style={[styles.scheduledLegend, { color: HEADER_COLORS[kind].text }]}>
+                      {kind === 'INCOME' ? 'INGRESO PROGRAMADO' : 'GASTO PROGRAMADO'}
                     </Text>
                   )}
                 </View>
@@ -627,256 +925,329 @@ export default function TransactionsScreen() {
               </View>
             ) : null}
 
-            <ScrollView style={styles.wizardBody} contentContainerStyle={styles.wizardBodyContent} showsVerticalScrollIndicator={false}>
-              {formStep === 'amount' && (
+            <ScrollView
+              style={styles.wizardBody}
+              contentContainerStyle={styles.wizardBodyContent}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitleSmall}>CUENTA</Text>
+              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalPills}>
+                {accounts.map((a: Account) => (
+                  <TouchableOpacity
+                    key={a.id}
+                    onPress={() => { setValidationError(null); setAccountId(a.id); }}
+                    style={[styles.pill, accountId === a.id && { backgroundColor: HEADER_COLORS[kind].primary }]}
+                  >
+                    <Text style={[styles.pillText, accountId === a.id && styles.pillTextActive]}>{a.name}</Text>
+                  </TouchableOpacity>
+                ))}
+                {accounts.length === 0 && (
+                  <Text style={styles.emptyTextInline}>Sin cuentas.</Text>
+                )}
+              </ScrollView>
+
+              {kind === 'TRANSFER' && (
                 <>
-                  <View style={styles.wizardDateRow}>
-                    <Calendar size={18} color="#64748b" />
-                    <Text style={styles.wizardDateText}>{format(occurredAt, "EEE, d MMM yyyy h:mm a", { locale: es })}</Text>
-                    <TouchableOpacity
-                      style={styles.scheduleDateBtn}
-                      onPress={() => {
-                        setTempDate(occurredAt);
-                        setShowDatePicker(true);
-                      }}
-                      accessibilityLabel="Programar fecha"
-                    >
-                      <Clock size={14} color="#2563eb" />
-                      <Text style={styles.scheduleDateBtnText}>Programar</Text>
-                    </TouchableOpacity>
+                  <View style={[styles.sectionHeader, { marginTop: 16 }]}>
+                    <Text style={styles.sectionTitleSmall}>DESTINO</Text>
                   </View>
-                  <NumericKeypad value={amount} onChange={(v) => { setValidationError(null); setAmount(v); }} />
-                </>
-              )}
-
-              {formStep === 'account' && (
-                <View style={styles.stepContent}>
-                  {accounts.length === 0 ? (
-                    <View style={styles.emptyBlock}>
-                      <Text style={styles.emptyText}>Crea una cuenta en Cuentas para registrar transacciones.</Text>
-                      <Button size="$2" theme="blue" onPress={() => router.push('/(tabs)/finance/accounts')}>
-                        Ir a Cuentas
-                      </Button>
-                    </View>
-                  ) : (
-                    <View style={styles.picker}>
-                      {accounts.map((a) => (
-                        <TouchableOpacity
-                          key={a.id}
-                          onPress={() => {
-                            setValidationError(null);
-                            setAccountId(a.id);
-                            const idx = steps.indexOf('account');
-                            if (idx >= 0 && idx < steps.length - 1) setFormStep(steps[idx + 1]);
-                          }}
-                          style={[styles.pill, accountId === a.id && styles.pillActive]}
-                        >
-                          <Text style={[styles.pillText, accountId === a.id && styles.pillTextActive]}>{a.name}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  )}
-                </View>
-              )}
-
-              {formStep === 'transfer_dest' && (
-                <View style={styles.stepContent}>
-                  <View style={styles.picker}>
-                    {accounts.filter((a) => a.id !== accountId).map((a) => (
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalPills}>
+                    {accounts.filter((a: Account) => a.id !== accountId).map((a: Account) => (
                       <TouchableOpacity
                         key={a.id}
-                        onPress={() => {
-                          setValidationError(null);
-                          setTransferAccountId(a.id);
-                          const idx = steps.indexOf('transfer_dest');
-                          if (idx >= 0 && idx < steps.length - 1) setFormStep(steps[idx + 1]);
-                        }}
-                        style={[styles.pill, transferAccountId === a.id && styles.pillActive]}
+                        onPress={() => { setValidationError(null); setTransferAccountId(a.id); }}
+                        style={[styles.pill, transferAccountId === a.id && { backgroundColor: HEADER_COLORS[kind].primary }]}
                       >
                         <Text style={[styles.pillText, transferAccountId === a.id && styles.pillTextActive]}>{a.name}</Text>
                       </TouchableOpacity>
                     ))}
+                    {accounts.length <= 1 && (
+                      <Text style={styles.emptyTextInline}>Necesitas otra cuenta.</Text>
+                    )}
+                  </ScrollView>
+                </>
+              )}
+
+              {kind !== 'TRANSFER' && (
+                <>
+                  <View style={[styles.sectionHeader, { marginTop: 16 }]}>
+                    <Text style={styles.sectionTitleSmall}>CATEGORÍA</Text>
                   </View>
-                </View>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalPills}>
+                    {categoriesForKind.map((c: Category, idx: number) => {
+                      const CatIcon = getCategoryIcon(c.icon, kind);
+                      const catColor = getCategoryColor(c.color, idx);
+                      const isActive = categoryId === c.id;
+                      return (
+                        <TouchableOpacity
+                          key={c.id}
+                          onPress={() => { setValidationError(null); setCategoryId(c.id); }}
+                          style={[styles.pill, isActive && { backgroundColor: HEADER_COLORS[kind].primary }]}
+                        >
+                          <CatIcon size={14} color={isActive ? '#fff' : (c.color || catColor)} style={{ marginRight: 6 }} />
+                          <Text style={[styles.pillText, isActive && styles.pillTextActive]}>{c.name}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                    {categoriesForKind.length === 0 && (
+                      <Text style={styles.emptyTextInline}>Sin categorías.</Text>
+                    )}
+                  </ScrollView>
+                </>
               )}
 
-              {formStep === 'category' && (
-                <View style={styles.stepContent}>
-                  {categoriesForKind.length === 0 ? (
-                    <View style={styles.emptyBlock}>
-                      <Text style={styles.emptyText}>
-                        {kind === 'EXPENSE' ? 'Sin categorías de gasto.' : 'Sin categorías de ingreso.'} Crea categorías para organizar mejor.
-                      </Text>
-                      <Button size="$2" theme="blue" onPress={() => router.push('/(tabs)/finance/categories')}>
-                        Gestionar categorías
-                      </Button>
-                    </View>
-                  ) : (
-                    <View style={styles.picker}>
-                      {categoriesForKind.map((c, idx) => {
-                        const CatIcon = getCategoryIcon(c.icon, kind);
-                        const catColor = getCategoryColor(c.color, idx);
-                        return (
-                          <TouchableOpacity
-                            key={c.id}
-                            onPress={() => {
-                              setValidationError(null);
-                              setCategoryId(c.id);
-                              const idx = steps.indexOf('category');
-                              if (idx >= 0 && idx < steps.length - 1) setFormStep(steps[idx + 1]);
-                            }}
-                            style={[styles.pill, categoryId === c.id && styles.pillActive]}
-                          >
-                            <View style={{ marginRight: 6 }}>
-                              <CatIcon size={16} color={categoryId === c.id ? '#fff' : catColor} />
-                            </View>
-                            <Text style={[styles.pillText, categoryId === c.id && styles.pillTextActive]}>{c.name}</Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-                  )}
-                </View>
-              )}
-
-              {formStep === 'label' && (
-                <View style={styles.stepContent}>
-                  <View style={styles.picker}>
-                    {EXPENSE_LABELS.map(({ value, label }) => (
+              {kind === 'EXPENSE' && (
+                <>
+                  <View style={[styles.sectionHeader, { marginTop: 16 }]}>
+                    <Text style={styles.sectionTitleSmall}>ETIQUETA</Text>
+                  </View>
+                  <View style={styles.labelsRow}>
+                    {expenseLabels.map((l) => (
                       <TouchableOpacity
-                        key={value}
-                        onPress={() => {
-                          setValidationError(null);
-                          setExpenseLabel(value);
-                          const idx = steps.indexOf('label');
-                          if (idx >= 0 && idx < steps.length - 1) setFormStep(steps[idx + 1]);
-                        }}
-                        style={[styles.pill, expenseLabel === value && styles.pillActive]}
+                        key={l.id}
+                        onPress={() => { setValidationError(null); setExpenseLabel(l.name); }}
+                        style={[styles.labelChip, expenseLabel === l.name && { backgroundColor: HEADER_COLORS[kind].primary, borderColor: HEADER_COLORS[kind].primary }]}
                       >
-                        <Text style={[styles.pillText, expenseLabel === value && styles.pillTextActive]}>{label}</Text>
+                        <Text style={[styles.labelChipText, expenseLabel === l.name && styles.labelChipTextActive]}>{l.name}</Text>
                       </TouchableOpacity>
                     ))}
+                    {expenseLabels.length === 0 && (
+                      <Text style={styles.emptyTextInline}>Sin etiquetas configuradas.</Text>
+                    )}
                   </View>
+                </>
+              )}
+
+              <View style={[styles.sectionHeader, { marginTop: 16, marginBottom: 8 }]}>
+                <Text style={styles.sectionTitleSmall}>NOTA</Text>
+              </View>
+              <View style={styles.noteInputContainer}>
+                <TextInput
+                  style={[styles.singleLineInput, { flex: 1 }]}
+                  placeholder="Añadir una nota..."
+                  value={note}
+                  onChangeText={setNote}
+                  editable={!loading}
+                />
+                <TouchableOpacity onPress={pickImage} style={styles.cameraBtn}>
+                  <Camera size={24} color={HEADER_COLORS[kind].primary} />
+                </TouchableOpacity>
+              </View>
+
+              {(ticketImageUri || ticketImageId) && (
+                <View style={styles.ticketPreviewContainer}>
+                  <Image
+                    source={{ uri: ticketImageUri || `${INSFORGE_URL}/api/storage/buckets/tickets/objects/${ticketImageId}` }}
+                    style={styles.ticketPreview}
+                  />
+                  <TouchableOpacity
+                    onPress={() => { setTicketImageUri(null); setTicketImageId(null); }}
+                    style={styles.removeTicketBtn}
+                  >
+                    <X size={16} color="#fff" />
+                  </TouchableOpacity>
                 </View>
               )}
 
-              {formStep === 'notes' && (
-                <View style={styles.stepContent}>
-                  <Text style={styles.fieldLabel}>Nota (opcional)</Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Ej. detalle del gasto"
-                    value={note}
-                    onChangeText={setNote}
-                    editable={!loading}
-                  />
-                  {!editingTx && (
-                    <>
-                      <View style={styles.recurringRow}>
-                        <TouchableOpacity
-                          onPress={() => setIsRecurring(!isRecurring)}
-                          style={styles.recurringToggle}
-                          activeOpacity={0.7}
-                        >
-                          <View style={[styles.checkbox, isRecurring && styles.checkboxChecked]} />
-                          <Text style={styles.recurringLabel}>Recurrente</Text>
-                        </TouchableOpacity>
-                      </View>
-                      {isRecurring && (
-                        <>
-                          <View style={styles.daySelectorWrap}>
-                            <Text style={styles.fieldLabel}>Cada mes el día</Text>
-                            <View style={styles.daySelectorRow}>
-                              <TouchableOpacity
-                                onPress={() => setRecurrenceDayOfMonth((d) => Math.max(1, d - 1))}
-                                style={styles.dayNavButton}
-                                disabled={recurrenceDayOfMonth <= 1}
-                              >
-                                <Text style={styles.dayNavText}>−</Text>
-                              </TouchableOpacity>
-                              <Text style={styles.dayValue}>{recurrenceDayOfMonth}</Text>
-                              <TouchableOpacity
-                                onPress={() => setRecurrenceDayOfMonth((d) => Math.min(31, d + 1))}
-                                style={styles.dayNavButton}
-                                disabled={recurrenceDayOfMonth >= 31}
-                              >
-                                <Text style={styles.dayNavText}>+</Text>
-                              </TouchableOpacity>
-                            </View>
-                          </View>
-                          <View style={styles.recurringIntervalWrap}>
-                            <Text style={styles.fieldLabel}>Dividir gasto en</Text>
-                            <View style={styles.intervalPillsRow}>
-                              {RECURRENCE_INTERVAL_OPTIONS.map(({ value, label }) => (
-                                <TouchableOpacity
-                                  key={value}
-                                  onPress={() => setRecurrenceIntervalMonths(value)}
-                                  style={[styles.intervalPill, recurrenceIntervalMonths === value && styles.pillActive]}
-                                >
-                                  <Text style={[styles.pillText, recurrenceIntervalMonths === value && styles.pillTextActive]}>{label}</Text>
-                                </TouchableOpacity>
-                              ))}
-                              <TouchableOpacity
-                                onPress={() => setRecurrenceIntervalMonths((n) => (RECURRENCE_INTERVAL_OPTIONS.some((o) => o.value === n) ? 24 : n))}
-                                style={[styles.intervalPill, !RECURRENCE_INTERVAL_OPTIONS.some((o) => o.value === recurrenceIntervalMonths) && styles.pillActive]}
-                              >
-                                <Text style={[styles.pillText, !RECURRENCE_INTERVAL_OPTIONS.some((o) => o.value === recurrenceIntervalMonths) && styles.pillTextActive]}>Otro</Text>
-                              </TouchableOpacity>
-                            </View>
-                            {!RECURRENCE_INTERVAL_OPTIONS.some((o) => o.value === recurrenceIntervalMonths) && (
-                              <View style={[styles.daySelectorRow, { marginTop: 8 }]}>
-                                <Text style={[styles.fieldLabel, { marginBottom: 0, marginRight: 8 }]}>N meses (MSI, etc.)</Text>
-                                <View style={styles.daySelectorRow}>
-                                  <TouchableOpacity
-                                    onPress={() => setRecurrenceIntervalMonths((n) => Math.max(4, n - 1))}
-                                    style={styles.dayNavButton}
-                                    disabled={recurrenceIntervalMonths <= 4}
-                                  >
-                                    <Text style={styles.dayNavText}>−</Text>
-                                  </TouchableOpacity>
-                                  <Text style={styles.dayValue}>{recurrenceIntervalMonths}</Text>
-                                  <TouchableOpacity
-                                    onPress={() => setRecurrenceIntervalMonths((n) => Math.min(120, n + 1))}
-                                    style={styles.dayNavButton}
-                                    disabled={recurrenceIntervalMonths >= 120}
-                                  >
-                                    <Text style={styles.dayNavText}>+</Text>
-                                  </TouchableOpacity>
-                                </View>
-                              </View>
-                            )}
-                          </View>
-                          <View style={styles.recurringRow}>
-                            <Text style={styles.fieldLabel}>Número de pagos (opcional)</Text>
-                            <TextInput
-                              style={styles.input}
-                              placeholder="Ej. 6 (vacío = sin límite)"
-                              value={recurrenceTotalOccurrences}
-                              onChangeText={(text) => setRecurrenceTotalOccurrences(text.replace(/[^0-9]/g, ''))}
-                              keyboardType="number-pad"
-                              editable={!loading}
-                            />
-                          </View>
-                        </>
-                      )}
-                    </>
-                  )}
-                </View>
+              <TouchableOpacity
+                style={styles.dateSelectorCard}
+                onPress={() => {
+                  if (Platform.OS === 'android') {
+                    openAndroidPicker('date', occurredAt);
+                  } else {
+                    setTempDate(occurredAt);
+                    setShowDatePicker(true);
+                  }
+                }}
+              >
+                <Calendar size={18} color="#64748b" />
+                <Text style={styles.dateSelectorText}>{format(occurredAt, "EEE, d MMM yyyy h:mm a", { locale: es })}</Text>
+                <Clock size={16} color={HEADER_COLORS[kind].primary} />
+              </TouchableOpacity>
+
+              {kind === 'EXPENSE' && (
+                <>
+                  <View style={styles.divider} />
+
+                  <View style={styles.inventorySection}>
+                    <TouchableOpacity
+                      onPress={() => setIsInventoryItem(!isInventoryItem)}
+                      style={styles.recurringToggleBtn}
+                    >
+                      <View style={[styles.checkbox, isInventoryItem && { backgroundColor: HEADER_COLORS[kind].primary, borderColor: HEADER_COLORS[kind].primary }]} />
+                      <Text style={styles.recurringLabel}>Registrar en Inventario</Text>
+                    </TouchableOpacity>
+
+                    {isInventoryItem && (
+                      <MotiView
+                        from={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        style={styles.recurringDetails}
+                      >
+                        <View style={styles.inputGroup}>
+                          <Text style={styles.inputTitleSmall}>NOMBRE DEL BIEN</Text>
+                          <TextInput
+                            style={styles.singleLineInput}
+                            placeholder="Ej. iPhone 15, Laptop, Sofá"
+                            value={assetName}
+                            onChangeText={setAssetName}
+                            editable={!loading}
+                          />
+                        </View>
+
+                        <View style={[styles.inputGroup, { marginTop: 12 }]}>
+                          <Text style={styles.inputTitleSmall}>TIENDA</Text>
+                          <TextInput
+                            style={styles.singleLineInput}
+                            placeholder="Ej. Apple Store, Amazon, IKEA"
+                            value={store}
+                            onChangeText={setStore}
+                            editable={!loading}
+                          />
+                        </View>
+
+                        <View style={[styles.inputGroup, { marginTop: 12 }]}>
+                          <Text style={styles.inputTitleSmall}>NOTAS ADICIONALES</Text>
+                          <TextInput
+                            style={styles.singleLineInput}
+                            placeholder="Garantía, color, etc."
+                            value={assetNotes}
+                            onChangeText={setAssetNotes}
+                            editable={!loading}
+                          />
+                        </View>
+                      </MotiView>
+                    )}
+                  </View>
+                </>
               )}
+
+              <View style={styles.divider} />
+
+              <View style={styles.recurringToggleRow}>
+                <TouchableOpacity
+                  onPress={() => setIsRecurring(!isRecurring)}
+                  style={styles.recurringToggleBtn}
+                >
+                  <View style={[styles.checkbox, isRecurring && { backgroundColor: HEADER_COLORS[kind].primary, borderColor: HEADER_COLORS[kind].primary }]} />
+                  <Text style={styles.recurringLabel}>
+                    {kind === 'INCOME' ? 'Ingreso Recurrente' : 'Gasto Recurrente'}
+                  </Text>
+                </TouchableOpacity>
+
+                {isRecurring && (
+                  <MotiView
+                    from={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    style={styles.recurringDetails}
+                  >
+                    <View style={styles.periodPickerRow}>
+                      <Text style={styles.dayPickerLabel}>Frecuencia:</Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dayValueTabs}>
+                        {RECURRENCE_PERIOD_OPTIONS.map((opt) => (
+                          <TouchableOpacity
+                            key={opt.value}
+                            onPress={() => setRecurrencePeriod(opt.value as any)}
+                            style={[
+                              styles.dayTab,
+                              { width: 'auto', paddingHorizontal: 12 },
+                              recurrencePeriod === opt.value && { backgroundColor: HEADER_COLORS[kind].primary },
+                            ]}
+                          >
+                            <Text style={[styles.dayTabText, recurrencePeriod === opt.value && styles.dayTabTextActive]}>{opt.label}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+
+                    {recurrencePeriod === 'WEEKLY' && (
+                      <View style={[styles.dayPickerRow, { marginTop: 16 }]}>
+                        <Text style={styles.dayPickerLabel}>Día de la semana:</Text>
+                        <View style={styles.dayValueTabs}>
+                          {DAYS_OF_WEEK.map((d) => (
+                            <TouchableOpacity
+                              key={d.value}
+                              onPress={() => setRecurrenceDayOfWeek(d.value)}
+                              style={[styles.dayTab, recurrenceDayOfWeek === d.value && { backgroundColor: HEADER_COLORS[kind].primary }]}
+                            >
+                              <Text style={[styles.dayTabText, recurrenceDayOfWeek === d.value && styles.dayTabTextActive]}>{d.label}</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      </View>
+                    )}
+
+                    {recurrencePeriod === 'MONTHLY' && (
+                      <>
+                        <View style={[styles.dayPickerRow, { marginTop: 16 }]}>
+                          <Text style={styles.dayPickerLabel}>Día del mes:</Text>
+                          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dayValueTabs}>
+                            {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+                              <TouchableOpacity
+                                key={d}
+                                onPress={() => setRecurrenceDayOfMonth(d)}
+                                style={[styles.dayTab, recurrenceDayOfMonth === d && { backgroundColor: HEADER_COLORS[kind].primary }]}
+                              >
+                                <Text style={[styles.dayTabText, recurrenceDayOfMonth === d && styles.dayTabTextActive]}>{d}</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </ScrollView>
+                        </View>
+
+                        <View style={[styles.dayPickerRow, { marginTop: 16 }]}>
+                          <Text style={styles.dayPickerLabel}>Cada X meses:</Text>
+                          <TextInput
+                            style={styles.occurrenceInput}
+                            value={String(recurrenceIntervalMonths)}
+                            onChangeText={(v) => setRecurrenceIntervalMonths(parseInt(v, 10) || 1)}
+                            keyboardType="number-pad"
+                            placeholder="1"
+                            placeholderTextColor="#94a3b8"
+                          />
+                        </View>
+                      </>
+                    )}
+
+                    <View style={[styles.dayPickerRow, { marginTop: 16 }]}>
+                      <Text style={styles.dayPickerLabel}>Límite (ocurrencias):</Text>
+                      <TextInput
+                        style={styles.occurrenceInput}
+                        value={recurrenceTotalOccurrences}
+                        onChangeText={setRecurrenceTotalOccurrences}
+                        keyboardType="number-pad"
+                        placeholder="Sin límite"
+                        placeholderTextColor="#94a3b8"
+                      />
+                    </View>
+                  </MotiView>
+                )}
+              </View>
+
+              <View style={{ height: 100 }} />
             </ScrollView>
 
             <View style={styles.wizardFooter}>
               <TouchableOpacity
-                onPress={goNext}
+                style={[styles.confirmButton, { backgroundColor: HEADER_COLORS[kind].primary }]}
+                onPress={() => {
+                  if (Platform.OS !== 'web') {
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                  }
+                  if (editingTx) updateTransaction();
+                  else createTransaction();
+                }}
                 disabled={loading}
-                style={[styles.wizardNextBtn, loading && styles.wizardNextBtnDisabled]}
               >
-                <Text style={styles.wizardNextBtnText}>
-                  {loading ? 'Guardando...' : getNextButtonLabel()}
+                <Check size={20} color="#fff" strokeWidth={3} />
+                <Text style={styles.confirmButtonText}>
+                  {loading ? 'Guardando...' : editingTx ? 'Actualizar' : 'Confirmar'}
                 </Text>
               </TouchableOpacity>
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </Modal>
 
         {/* DateTimePicker Modal for scheduling */}
@@ -934,43 +1305,28 @@ export default function TransactionsScreen() {
                   </TouchableOpacity>
                   <Text style={styles.datePickerTitle}>Programar fecha</Text>
                   <TouchableOpacity
-                    onPress={() => {
-                      setOccurredAt(tempDate);
-                      setShowDatePicker(false);
-                    }}
+                    onPress={handleDateConfirm}
                     style={styles.datePickerBtn}
                   >
                     <Text style={styles.datePickerBtnConfirm}>Aceptar</Text>
                   </TouchableOpacity>
                 </View>
                 <DateTimePicker
-                  value={tempDate}
+                  value={tempDate instanceof Date ? tempDate : new Date()}
                   mode="datetime"
                   display="spinner"
-                  onChange={(_, date) => date && setTempDate(date)}
+                  onChange={handleDateChange}
                   locale="es"
                 />
               </View>
             </View>
           </Modal>
         )}
-        {showDatePicker && Platform.OS === 'android' && (
-          <DateTimePicker
-            value={tempDate}
-            mode="datetime"
-            display="default"
-            onChange={(event, date) => {
-              setShowDatePicker(false);
-              if (event.type === 'set' && date) {
-                setOccurredAt(date);
-              }
-            }}
-          />
-        )}
+        {/* Note: Android uses imperative API via openAndroidPicker */}
 
         <View style={styles.monthNavWrap}>
           <TouchableOpacity
-            onPress={() => setSelectedMonth((m) => subMonths(m, 1))}
+            onPress={() => setSelectedMonth((m: Date) => subMonths(m, 1))}
             style={styles.monthNavButton}
             accessibilityLabel="Mes anterior"
           >
@@ -978,7 +1334,7 @@ export default function TransactionsScreen() {
           </TouchableOpacity>
           <Text style={styles.monthNavLabel}>{format(selectedMonth, 'MMMM yyyy', { locale: es })}</Text>
           <TouchableOpacity
-            onPress={() => setSelectedMonth((m) => addMonths(m, 1))}
+            onPress={() => setSelectedMonth((m: Date) => addMonths(m, 1))}
             style={styles.monthNavButton}
             accessibilityLabel="Mes siguiente"
           >
@@ -987,12 +1343,12 @@ export default function TransactionsScreen() {
         </View>
 
         <Text style={styles.sectionTitle}>Transacciones</Text>
-        {transactions.map((item, index) => {
+        {filteredTransactions.map((item: Transaction, index: number) => {
           const Icon = TX_KINDS.find((k) => k.value === item.kind)?.icon ?? TrendingDown;
           const isVirtual = 'isRecurringInstance' in item && item.isRecurringInstance;
-          const accountName = accounts.find((a) => a.id === item.account_id)?.name ?? '';
-          const categoryName = item.category_id ? (categories.find((c) => c.id === item.category_id)?.name ?? null) : null;
-          const transferName = item.transfer_account_id ? accounts.find((a) => a.id === item.transfer_account_id)?.name : null;
+          const accountName = accounts.find((a: Account) => a.id === item.account_id)?.name ?? '';
+          const categoryName = item.category_id ? (categories.find((c: Category) => c.id === item.category_id)?.name ?? null) : null;
+          const transferName = item.transfer_account_id ? accounts.find((a: Account) => a.id === item.transfer_account_id)?.name : null;
           const isExpense = item.kind === 'EXPENSE';
           const isIncome = item.kind === 'INCOME';
           const isTransfer = item.kind === 'TRANSFER';
@@ -1004,7 +1360,7 @@ export default function TransactionsScreen() {
               key={item.id}
               from={{ opacity: 0, translateX: -12 }}
               animate={{ opacity: 1, translateX: 0 }}
-              transition={{ type: 'timing', duration: 320, delay: 100 + index * 45 }}
+              transition={{ duration: 320, delay: 100 + index * 45 }}
               style={styles.txCard}
             >
               <View style={[styles.txIconWrap, iconWrapStyle]}>
@@ -1025,32 +1381,39 @@ export default function TransactionsScreen() {
                   <Text numberOfLines={1} style={styles.txMeta}>Categoría: {categoryName}</Text>
                 ) : null}
                 {isExpense && item.expense_label ? (
-                  <Text numberOfLines={1} style={styles.txMeta}>Etiqueta: {expenseLabelDisplay(item.expense_label)}</Text>
+                  <Text numberOfLines={1} style={styles.txMeta}>Etiqueta: {expenseLabelDisplay(item.expense_label, expenseLabels)}</Text>
                 ) : null}
                 {item.note ? <Text numberOfLines={1} style={styles.txNote}>{item.note}</Text> : null}
+                {item.ticket_image_id && (
+                  <TouchableOpacity
+                    onPress={() => setViewingTicketImageId(item.ticket_image_id || null)}
+                    style={styles.txTicketIcon}
+                  >
+                    <ImageIcon size={14} color="#64748b" style={{ marginRight: 4 }} />
+                    <Text style={styles.txTicketText}>Ver ticket</Text>
+                  </TouchableOpacity>
+                )}
               </View>
               <View style={styles.txRight}>
                 <Text style={amountStyle}>
                   {isExpense ? '-' : ''}{Number(item.amount).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}
                 </Text>
-                {!isVirtual && (
-                  <View style={styles.txActions}>
-                    <TouchableOpacity
-                      onPress={() => { setValidationError(null); setEditingTx(item); setShowForm(true); }}
-                      style={styles.txActionBtn}
-                      accessibilityLabel="Editar"
-                    >
-                      <Pencil size={18} color="#2563eb" />
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={() => confirmDelete(item)}
-                      style={styles.txActionBtn}
-                      accessibilityLabel="Eliminar"
-                    >
-                      <Trash2 size={18} color="#dc2626" />
-                    </TouchableOpacity>
-                  </View>
-                )}
+                <View style={styles.txActions}>
+                  <TouchableOpacity
+                    onPress={() => { setValidationError(null); setEditingTx(item); setShowForm(true); }}
+                    style={styles.txActionBtn}
+                    accessibilityLabel="Editar"
+                  >
+                    <Pencil size={18} color="#2563eb" />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => confirmDelete(item)}
+                    style={styles.txActionBtn}
+                    accessibilityLabel="Eliminar"
+                  >
+                    <Trash2 size={18} color="#dc2626" />
+                  </TouchableOpacity>
+                </View>
               </View>
             </MotiView>
           );
@@ -1066,242 +1429,412 @@ export default function TransactionsScreen() {
           pointsContext?.refresh();
         }}
       />
-    </View>
+
+      <Modal
+        visible={!!viewingTicketImageId}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setViewingTicketImageId(null)}
+      >
+        <View style={styles.fullscreenImageOverlay}>
+          <TouchableOpacity
+            style={styles.fullscreenImageClose}
+            onPress={() => setViewingTicketImageId(null)}
+          >
+            <X size={32} color="#fff" />
+          </TouchableOpacity>
+          {viewingTicketImageId && (
+            <Image
+              source={{ uri: `${INSFORGE_URL}/api/storage/buckets/tickets/objects/${viewingTicketImageId}` }}
+              style={styles.fullscreenImage}
+              resizeMode="contain"
+            />
+          )}
+        </View>
+      </Modal>
+    </View >
   );
 }
 
 const styles = StyleSheet.create({
-  wrapper: { flex: 1, backgroundColor: '#f1f5f9' },
+  wrapper: { flex: 1, backgroundColor: '#f8fafc' },
   container: { flex: 1 },
   content: { padding: 20, paddingBottom: 40 },
-  wizardWrap: { flex: 1, backgroundColor: '#fff' },
+  wizardWrap: { flex: 1, backgroundColor: '#f8fafc' },
   wizardHeader: {
-    paddingTop: Platform.OS === 'ios' ? 52 : 24,
-    paddingBottom: 20,
-    paddingHorizontal: 16,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
+    paddingTop: Platform.OS === 'ios' ? 60 : 30,
+    paddingBottom: 25,
+    paddingHorizontal: 20,
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 8,
   },
   wizardHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
-  wizardClose: { padding: 8, width: 40 },
-  wizardClosePlaceholder: { width: 40 },
-  wizardHeaderCenter: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  wizardKindRow: { flexDirection: 'row', justifyContent: 'center', gap: 12, marginBottom: 12 },
-  wizardKindChip: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20 },
-  wizardKindChipActive: { backgroundColor: 'rgba(255,255,255,0.9)' },
-  wizardKindText: { fontSize: 14, fontWeight: '600', color: 'rgba(255,255,255,0.9)' },
+  wizardClose: { padding: 8, width: 44, alignItems: 'center' },
+  wizardClosePlaceholder: { width: 44 },
+  wizardHeaderCenter: { flex: 1, alignItems: 'center' },
+  wizardKindRow: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    padding: 4,
+    borderRadius: 14,
+    marginBottom: 16,
+  },
+  wizardKindChip: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 10 },
+  wizardKindChipActive: { backgroundColor: '#fff', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 2 },
+  wizardKindText: { fontSize: 13, fontWeight: '600', color: 'rgba(0,0,0,0.5)' },
   wizardKindTextActive: { color: '#0f172a' },
-  wizardAmount: { fontSize: 36, fontWeight: '700', textAlign: 'center' },
-  wizardDate: { fontSize: 12, opacity: 0.85, textAlign: 'center', marginTop: 6 },
-  wizardDateRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16, paddingHorizontal: 8 },
-  wizardDateText: { fontSize: 14, color: '#64748b' },
+  wizardAmount: { fontSize: 48, fontWeight: '800', textAlign: 'center', letterSpacing: -1 },
+  wizardDate: { fontSize: 13, opacity: 0.7, textAlign: 'center', marginTop: 8, fontWeight: '500' },
   wizardBody: { flex: 1 },
-  wizardBodyContent: { padding: 20, paddingBottom: 24 },
-  wizardFooter: { padding: 20, paddingBottom: Platform.OS === 'ios' ? 34 : 20, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#f1f5f9' },
-  wizardNextBtn: {
-    backgroundColor: '#16a34a',
-    paddingVertical: 16,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  wizardNextBtnDisabled: { opacity: 0.6 },
-  wizardNextBtnText: { fontSize: 17, fontWeight: '700', color: '#fff' },
-  stepContent: { marginBottom: 20 },
-  formCard: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  validationBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#fef3c7',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#fde68a',
-  },
-  validationBannerText: { flex: 1, fontSize: 13, color: '#92400e', lineHeight: 18 },
-  fieldLabel: { fontSize: 14, fontWeight: '600', color: '#334155', marginBottom: 10 },
-  kindRow: { flexDirection: 'row', gap: 10, marginBottom: 18 },
-  kindChip: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 12,
-    borderRadius: 12,
-    backgroundColor: '#f1f5f9',
-  },
-  kindChipActive: { backgroundColor: '#2563eb' },
-  kindChipText: { fontSize: 13, fontWeight: '600', color: '#64748b' },
-  kindChipTextActive: { color: '#fff' },
-  input: {
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 18,
-    fontSize: 16,
-    backgroundColor: '#fff',
-    ...(Platform.OS === 'web' && { outlineStyle: 'none' }),
-  },
-  picker: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 18 },
+  wizardBodyContent: { padding: 20, paddingBottom: 100 },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, paddingHorizontal: 4 },
+  sectionTitleSmall: { fontSize: 11, fontWeight: '800', color: '#94a3b8', letterSpacing: 1 },
+  horizontalPills: { gap: 10, paddingRight: 20 },
   pill: {
-    flexDirection: 'row',
-    alignItems: 'center',
     paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 10,
-    backgroundColor: '#f1f5f9',
-  },
-  pillActive: { backgroundColor: '#2563eb' },
-  pillText: { fontSize: 14, fontWeight: '600', color: '#475569' },
-  pillTextActive: { color: '#fff' },
-  emptyBlock: { marginBottom: 18 },
-  emptyText: { fontSize: 14, color: '#64748b', marginBottom: 10 },
-  recurringRow: { marginBottom: 18 },
-  recurringToggle: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  recurringLabel: { fontSize: 15, fontWeight: '600', color: '#334155' },
-  checkbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: '#cbd5e1',
+    paddingHorizontal: 18,
+    borderRadius: 16,
     backgroundColor: '#fff',
-  },
-  checkboxChecked: { backgroundColor: '#2563eb', borderColor: '#2563eb' },
-  daySelectorWrap: { marginBottom: 18 },
-  recurringIntervalWrap: { marginBottom: 18 },
-  intervalPillsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
-  intervalPill: {
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    backgroundColor: '#f1f5f9',
-  },
-  daySelectorRow: { flexDirection: 'row', alignItems: 'center', gap: 16 },
-  dayNavButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: '#f1f5f9',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  dayNavText: { fontSize: 20, fontWeight: '700', color: '#334155' },
-  dayValue: { fontSize: 18, fontWeight: '700', color: '#0f172a', minWidth: 32, textAlign: 'center' },
-  monthNavWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-    paddingVertical: 8,
-    paddingHorizontal: 4,
-  },
-  monthNavButton: { padding: 8 },
-  monthNavLabel: { fontSize: 17, fontWeight: '700', color: '#0f172a', textTransform: 'capitalize' },
-  sectionTitle: { fontSize: 17, fontWeight: '700', color: '#0f172a', marginBottom: 14 },
-  txCard: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    padding: 16,
-    marginBottom: 10,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowRadius: 2,
+    elevation: 1,
   },
-  txIconWrap: {
-    width: 44,
-    height: 44,
-    flexShrink: 0,
+  pillText: { fontSize: 14, fontWeight: '600', color: '#64748b' },
+  pillTextActive: { color: '#fff' },
+  labelsRow: { flexDirection: 'row', gap: 10, flexWrap: 'wrap', paddingHorizontal: 4 },
+  labelChip: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
     borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 14,
+    backgroundColor: '#fff',
+    borderWidth: 1.5,
+    borderColor: '#f1f5f9',
   },
-  txIconRed: { backgroundColor: '#fee2e2' },
-  txIconGreen: { backgroundColor: '#dcfce7' },
-  txIconBlue: { backgroundColor: '#dbeafe' },
-  txInfo: { flex: 1 },
-  txRight: { alignItems: 'flex-end', gap: 8, flexShrink: 0 },
-  txActions: { flexDirection: 'row', gap: 6 },
-  txActionBtn: { padding: 6 },
-  txMeta: { fontSize: 12, color: '#64748b', marginTop: 2 },
-  txKindRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
-  txKind: { fontSize: 15, fontWeight: '700', color: '#0f172a' },
-  recurringBadge: { backgroundColor: '#e0e7ff', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
-  recurringBadgeText: { fontSize: 11, fontWeight: '600', color: '#4338ca' },
-  txDate: { fontSize: 12, color: '#94a3b8', marginTop: 2 },
-  txNote: { fontSize: 12, color: '#64748b', marginTop: 2 },
-  txNeg: { fontWeight: '700', color: '#dc2626', fontSize: 15 },
-  txPos: { fontWeight: '700', color: '#16a34a', fontSize: 15 },
-  txTransfer: { fontWeight: '700', color: '#2563eb', fontSize: 15 },
-  // Schedule date button styles
-  scheduleDateBtn: {
+  labelChipText: { fontSize: 13, fontWeight: '600', color: '#64748b' },
+  labelChipTextActive: { color: '#fff' },
+  singleLineInput: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    fontSize: 16,
+    color: '#0f172a',
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+    ...(Platform.OS === 'web' && { outlineStyle: 'none' as any }),
+  },
+  wizardAmountInput: {
+    fontSize: 48,
+    fontWeight: '800',
+    textAlign: 'left',
+    letterSpacing: -1,
+    padding: 0,
+    margin: 0,
+    minWidth: 80,
+    ...(Platform.OS === 'web' && { outlineStyle: 'none' as any }),
+  },
+  amountInputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#eff6ff',
-    paddingHorizontal: 10,
+    justifyContent: 'center',
+    marginTop: 4,
+  },
+  amountCurrency: {
+    fontSize: 32,
+    fontWeight: '700',
+    marginRight: 4,
+    opacity: 0.9,
+  },
+  wizardFooter: {
+    padding: 20,
+    backgroundColor: '#fff',
+    borderTopWidth: 1,
+    borderTopColor: '#f1f5f9',
+    paddingBottom: Platform.OS === 'ios' ? 34 : 16,
+  },
+  confirmButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    borderRadius: 18,
+    gap: 10,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  confirmButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  scheduledLegend: {
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 2,
+    marginTop: 8,
+    opacity: 0.8,
+  },
+  occurrenceInput: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: '#0f172a',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    minWidth: 80,
+    ...(Platform.OS === 'web' && { outlineStyle: 'none' as any }),
+  },
+  noteInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+    gap: 12,
+  },
+  cameraBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  ticketPreviewContainer: {
+    position: 'relative',
+    marginBottom: 20,
+    alignItems: 'center',
+  },
+  ticketPreview: {
+    width: '100%',
+    height: 200,
+    borderRadius: 16,
+    backgroundColor: '#f1f5f9',
+  },
+  removeTicketBtn: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dateSelectorCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    padding: 16,
+    borderRadius: 16,
+    gap: 12,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+    marginBottom: 24,
+  },
+  dateSelectorText: { flex: 1, fontSize: 15, color: '#475569', fontWeight: '500' },
+  projectedBalanceContainer: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 8,
-    marginLeft: 'auto',
-  },
-  scheduleDateBtnText: { fontSize: 12, fontWeight: '600', color: '#2563eb' },
-  // DateTimePicker modal styles
-  datePickerOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
+    marginTop: 10,
     alignItems: 'center',
-    ...(Platform.OS === 'web' && { justifyContent: 'center' }),
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
   },
-  datePickerContent: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    paddingBottom: 24,
-    ...(Platform.OS === 'web' && { 
-      borderRadius: 16, 
-      width: '90%', 
-      maxWidth: 400,
-      paddingHorizontal: 20,
-    }),
+  projectedBalanceLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    opacity: 0.8,
+    letterSpacing: 0.5,
   },
-  datePickerHeader: {
+  projectedBalanceValue: {
+    fontSize: 14,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  divider: { height: 1, backgroundColor: '#f1f5f9', marginVertical: 8 },
+  recurringToggleRow: { paddingHorizontal: 4, marginVertical: 16 },
+  recurringToggleBtn: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  checkbox: { width: 24, height: 24, borderRadius: 8, borderWidth: 2, borderColor: '#cbd5e1', backgroundColor: '#fff' },
+  recurringLabel: { fontSize: 15, fontWeight: '600', color: '#334155' },
+  recurringDetails: { marginTop: 16, paddingLeft: 36 },
+  periodPickerRow: { gap: 8 },
+  dayPickerRow: { gap: 8 },
+  dayPickerLabel: { fontSize: 13, color: '#64748b', fontWeight: '500' },
+  dayValueTabs: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  dayTab: { width: 36, height: 36, borderRadius: 10, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#f1f5f9' },
+  dayTabText: { fontSize: 12, fontWeight: '600', color: '#64748b' },
+  dayTabTextActive: { color: '#fff' },
+  keypadContainer: { marginTop: 16, borderTopWidth: 1.5, borderTopColor: '#f1f5f9', paddingTop: 28 },
+  validationBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#fff7ed', padding: 14, borderRadius: 16, margin: 20, marginBottom: 0, borderWidth: 1, borderColor: '#ffedd5' },
+  validationBannerText: { flex: 1, fontSize: 13, color: '#9a3412', fontWeight: '500' },
+  emptyTextInline: { fontSize: 13, color: '#94a3b8', fontStyle: 'italic', paddingVertical: 10 },
+  monthNavWrap: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, paddingHorizontal: 4 },
+  monthNavButton: { padding: 10, backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#f1f5f9' },
+  monthNavLabel: { fontSize: 18, fontWeight: '800', color: '#0f172a', textTransform: 'capitalize' },
+  sectionTitle: { fontSize: 20, fontWeight: '800', color: '#0f172a', marginBottom: 16 },
+  txCard: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  txIconWrap: { width: 48, height: 48, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginRight: 16 },
+  txIconRed: { backgroundColor: '#fff1f2' },
+  txIconGreen: { backgroundColor: '#f0fdf4' },
+  txIconBlue: { backgroundColor: '#eff6ff' },
+  txInfo: { flex: 1 },
+  txKind: { fontSize: 16, fontWeight: '700', color: '#0f172a' },
+  txDate: { fontSize: 13, color: '#94a3b8', marginTop: 2 },
+  txMeta: { fontSize: 12, color: '#64748b', marginTop: 4 },
+  txNote: { fontSize: 12, color: '#94a3b8', marginTop: 2, fontStyle: 'italic' },
+  txRight: { alignItems: 'flex-end' },
+  txNeg: { fontSize: 17, fontWeight: '800', color: '#e11d48' },
+  txPos: { fontSize: 17, fontWeight: '800', color: '#16a34a' },
+  txTransfer: { fontSize: 17, fontWeight: '800', color: '#2563eb' },
+  txActions: { flexDirection: 'row', gap: 12, marginTop: 10 },
+  txActionBtn: { padding: 4 },
+  recurringBadge: { backgroundColor: '#eff6ff', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, marginLeft: 8 },
+  recurringBadgeText: { fontSize: 11, fontWeight: '600', color: '#2563eb' },
+  txKindRow: { flexDirection: 'row', alignItems: 'center' },
+  txTicketIcon: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    backgroundColor: '#f1f5f9',
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+  },
+  txTicketText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  datePickerOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  datePickerContent: { backgroundColor: '#fff', borderTopLeftRadius: 32, borderTopRightRadius: 32, paddingBottom: 40 },
+  datePickerHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
+  datePickerTitle: { fontSize: 17, fontWeight: '700', color: '#0f172a' },
+  datePickerBtn: { padding: 8 },
+  datePickerBtnCancel: { fontSize: 16, color: '#64748b', fontWeight: '500' },
+  datePickerBtnConfirm: { fontSize: 16, fontWeight: '700', color: '#2563eb' },
+  webDatePickerContainer: { padding: 20 },
+  inventorySection: { paddingVertical: 16 },
+  inputGroup: { marginBottom: 4 },
+  inputTitleSmall: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#94a3b8',
+    marginBottom: 6,
+    letterSpacing: 0.5,
+  },
+  fullscreenImageOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.9)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fullscreenImageClose: {
+    position: 'absolute',
+    top: 50,
+    right: 25,
+    zIndex: 10,
+  },
+  fullscreenImage: {
+    width: '100%',
+    height: '100%',
+  },
+  tabsContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#f1f5f9',
+    gap: 12,
   },
-  datePickerTitle: { fontSize: 16, fontWeight: '600', color: '#0f172a' },
-  datePickerBtn: { paddingVertical: 8, paddingHorizontal: 4 },
-  datePickerBtnCancel: { fontSize: 16, color: '#64748b' },
-  datePickerBtnConfirm: { fontSize: 16, fontWeight: '600', color: '#2563eb' },
-  webDatePickerContainer: {
+  tab: {
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#f8fafc',
+  },
+  activeTab: {
+    backgroundColor: '#2563eb',
+  },
+  tabText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  activeTabText: {
+    color: '#fff',
+  },
+  filtersContainer: {
+    marginBottom: 20,
+    gap: 12,
+  },
+  filtersScroll: {
+    paddingHorizontal: 0,
+    gap: 8,
+  },
+  filterChip: {
     paddingHorizontal: 16,
     paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#f1f5f9',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  filterChipActive: {
+    backgroundColor: '#2563eb',
+    borderColor: '#2563eb',
+  },
+  filterChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  filterChipTextActive: {
+    color: '#fff',
   },
 });

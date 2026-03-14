@@ -1,44 +1,44 @@
-import { useEffect, useState } from 'react';
+import { useAuth } from '@/contexts/auth-context';
 import {
-  View,
-  Text,
-  ScrollView,
-  TextInput,
-  StyleSheet,
-  Alert,
-  Platform,
-  TouchableOpacity,
-  Modal,
-  Pressable,
-} from 'react-native';
-import { MotiView } from 'moti';
-import { Button } from 'tamagui';
-import {
-  TrendingUp,
-  TrendingDown,
-  Pencil,
-  Plus,
-  Trash2,
+  Briefcase,
+  Building2,
   ChevronLeft,
   ChevronRight,
   DollarSign,
-  Briefcase,
-  PieChart,
-  Building2,
   MoreHorizontal,
+  Pencil,
+  PieChart,
+  Plus,
+  Trash2,
+  TrendingDown,
+  TrendingUp,
 } from '@tamagui/lucide-icons';
-import { useAuth } from '@/contexts/auth-context';
-import { Permission, Role } from 'react-native-appwrite';
+import { MotiView } from 'moti';
+import { useEffect, useState } from 'react';
 import {
-  listDocuments,
-  createDocument,
-  updateDocument,
-  deleteDocument,
+  Alert,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { Button } from 'tamagui';
+
+import {
   COLLECTIONS,
+  createDocument,
+  deleteDocument,
+  listDocuments,
   Query,
+  updateDocument,
   type AppwriteDocument,
 } from '@/lib/appwrite';
-import { startOfMonth, format, addMonths, subMonths } from 'date-fns';
+import { addMonths, format, startOfMonth, subMonths } from 'date-fns';
 import { es } from 'date-fns/locale';
 
 const INCOME_SOURCES = [
@@ -142,11 +142,7 @@ export default function FlujoEfectivoScreen() {
     }
     setLoading(true);
     try {
-      const permissions = [
-        Permission.read(Role.user(profile.id)),
-        Permission.update(Role.user(profile.id)),
-        Permission.delete(Role.user(profile.id)),
-      ];
+
       await createDocument(
         COLLECTIONS.cash_flow_income,
         {
@@ -158,8 +154,7 @@ export default function FlujoEfectivoScreen() {
           note: note.trim() || null,
           created_at: new Date().toISOString(),
         } as Record<string, unknown>,
-        undefined,
-        permissions
+        undefined
       );
     } catch (err) {
       setLoading(false);
@@ -285,7 +280,7 @@ export default function FlujoEfectivoScreen() {
           <MotiView
             from={{ opacity: 0, translateY: 8 }}
             animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'timing', duration: 400 }}
+            transition={{ type: 'timing', duration: 400 } as any}
             style={[styles.summaryCard, styles.summaryCardExpenses]}
           >
             <View style={styles.summaryCardHeader}>
@@ -299,7 +294,7 @@ export default function FlujoEfectivoScreen() {
           <MotiView
             from={{ opacity: 0, translateY: 8 }}
             animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'timing', duration: 400, delay: 80 }}
+            transition={{ type: 'timing', duration: 400, delay: 80 } as any}
             style={[styles.summaryCard, styles.summaryCardIncome]}
           >
             <View style={styles.summaryCardHeader}>
@@ -316,7 +311,7 @@ export default function FlujoEfectivoScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 8 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'timing', duration: 400, delay: 120 }}
+          transition={{ type: 'timing', duration: 400, delay: 120 } as any}
           style={[styles.cashFlowCard, { backgroundColor: explanation.bgColor }]}
         >
           <View style={styles.cashFlowHeader}>
@@ -333,7 +328,7 @@ export default function FlujoEfectivoScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 8 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'timing', duration: 400, delay: 160 }}
+          transition={{ type: 'timing', duration: 400, delay: 160 } as any}
         >
           <Button
             onPress={() => {
@@ -353,7 +348,7 @@ export default function FlujoEfectivoScreen() {
           <MotiView
             from={{ opacity: 0, translateY: 12 }}
             animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'timing', duration: 350 }}
+            transition={{ type: 'timing', duration: 350 } as any}
             style={styles.formCard}
           >
             <Text style={styles.fieldLabel}>Fuente de ingreso</Text>
@@ -412,7 +407,7 @@ export default function FlujoEfectivoScreen() {
           <MotiView
             from={{ opacity: 0, translateX: -12 }}
             animate={{ opacity: 1, translateX: 0 }}
-            transition={{ type: 'timing', duration: 320 }}
+            transition={{ type: 'timing', duration: 320 } as any}
             style={styles.card}
           >
             <View style={styles.cardHeader}>
@@ -456,7 +451,7 @@ export default function FlujoEfectivoScreen() {
       <MotiView
         from={{ opacity: 0, scale: 0 }}
         animate={{ opacity: 1, scale: 1 }}
-        transition={{ type: 'spring', damping: 14, delay: 300 }}
+        transition={{ type: 'spring', damping: 14, delay: 300 } as any}
         style={styles.fabWrap}
       >
         <TouchableOpacity
@@ -634,7 +629,7 @@ const styles = StyleSheet.create({
     marginBottom: 18,
     fontSize: 16,
     backgroundColor: '#fff',
-    ...(Platform.OS === 'web' && { outlineStyle: 'none' }),
+    ...(Platform.OS === 'web' && ({ outlineStyle: 'none' } as any)),
   },
   textArea: {
     minHeight: 80,

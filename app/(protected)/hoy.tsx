@@ -1,59 +1,28 @@
-import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, Platform } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useAuth } from '@/contexts/auth-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { format } from 'date-fns';
-import { useAuth } from '@/contexts/auth-context';
-import { getOrCreateDailyRecommendation } from '@/lib/pilot';
-import type { PilotRecommendation } from '@/types/pilot';
-import { PilotCard } from '@/components/pilot/PilotCard';
-import { EmotionalCheckin } from '@/components/pilot/EmotionalCheckin';
+import { useRouter } from 'expo-router';
+import { useEffect } from 'react';
+import { ActivityIndicator, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 const PILOT_CONTINUED_KEY = 'pilot_continued_date';
 
 export default function HoyScreen() {
   const router = useRouter();
   const { profile } = useAuth();
-  const [recommendation, setRecommendation] = useState<PilotRecommendation | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
   useEffect(() => {
-    if (!profile?.id || !profile.org_id) {
-      setLoading(false);
-      return;
-    }
-    (async () => {
-      setError(null);
-      const rec = await getOrCreateDailyRecommendation(profile.id, profile.org_id, new Date());
-      setRecommendation(rec ?? null);
-      setLoading(false);
-    })();
-  }, [profile?.id, profile?.org_id]);
+    handleContinuar();
+  }, []);
 
   const handleContinuar = async () => {
     await AsyncStorage.setItem(PILOT_CONTINUED_KEY, format(new Date(), 'yyyy-MM-dd'));
     router.replace('/(tabs)/course');
   };
 
-  if (loading) {
+  if (false) {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color="#2563eb" />
-        <Text style={styles.loadingText}>Preparando tu recomendación del día...</Text>
-      </View>
-    );
-  }
-
-  if (error || !recommendation) {
-    return (
-      <View style={styles.center}>
-        <Text style={styles.errorText}>
-          {error ?? 'No pudimos cargar tu recomendación. Intenta de nuevo.'}
-        </Text>
-        <TouchableOpacity style={styles.button} onPress={handleContinuar}>
-          <Text style={styles.buttonText}>Continuar</Text>
-        </TouchableOpacity>
       </View>
     );
   }
@@ -61,13 +30,9 @@ export default function HoyScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Tu Piloto Financiero</Text>
-        <Text style={styles.subtitle}>Recomendación de hoy</Text>
+        <Text style={styles.title}>¡Hola!</Text>
+        <Text style={styles.subtitle}>Preparando tu día...</Text>
       </View>
-      <PilotCard recommendation={recommendation} />
-      {profile?.id ? (
-        <EmotionalCheckin userId={profile.id} date={new Date()} compact />
-      ) : null}
       <TouchableOpacity
         style={styles.button}
         onPress={handleContinuar}

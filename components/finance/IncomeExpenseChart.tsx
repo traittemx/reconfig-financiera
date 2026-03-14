@@ -1,5 +1,5 @@
-import { View, Text, StyleSheet } from 'react-native';
 import { MotiView } from 'moti';
+import { StyleSheet, Text, View } from 'react-native';
 
 const MAX_BAR_WIDTH = 100;
 
@@ -20,7 +20,7 @@ export function IncomeExpenseChart({ income, expense, height = 120 }: Props) {
         <View style={styles.barLabel}>
           <Text style={styles.labelText}>Ingresos</Text>
           <Text style={styles.amountIncome}>
-            ${income.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+            ${(income || 0).toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
           </Text>
         </View>
         <View style={styles.barTrack}>
@@ -31,7 +31,7 @@ export function IncomeExpenseChart({ income, expense, height = 120 }: Props) {
             style={[
               styles.barFill,
               styles.barIncome,
-              { width: `${Math.min(incomePct, MAX_BAR_WIDTH)}%` },
+              { width: `${Math.min(incomePct || 0, MAX_BAR_WIDTH)}%` },
             ]}
           />
         </View>
@@ -40,7 +40,7 @@ export function IncomeExpenseChart({ income, expense, height = 120 }: Props) {
         <View style={styles.barLabel}>
           <Text style={styles.labelText}>Gastos</Text>
           <Text style={styles.amountExpense}>
-            ${expense.toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+            ${(expense || 0).toLocaleString('es-MX', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
           </Text>
         </View>
         <View style={styles.barTrack}>

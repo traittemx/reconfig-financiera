@@ -1,0 +1,30 @@
+[
+  {
+    "id": "c6143847-cf16-4d85-aae7-5ffee53ee8a6",
+    "budget_id": "a0c71d33-0945-4fbe-ad48-6296ec57887f",
+    "category_id": "98c25363-6ddc-40d9-8ebe-2cac33058ba7",
+    "limit_amount": 5000,
+    "created_at": "2026-02-06T22:37:50.166+00:00"
+  },
+  {
+    "id": "c05fea3b-f19f-47e6-9a0c-7a239a26fc82",
+    "budget_id": "6a9cd095-78f6-4f62-a0d6-f32a859440f4",
+    "category_id": "47a29d30-49ad-42e1-9e92-41cacc794f7e",
+    "limit_amount": 3000,
+    "created_at": "2026-02-10T01:33:55.542+00:00"
+  },
+  {
+    "id": "213da8ad-4af7-4a5a-94c6-a7780a11861f",
+    "budget_id": "3adf042c-03e5-4a55-847c-ae1e81ef368a",
+    "category_id": "bcb4e0d5-e9ca-41aa-b0fe-25807eb6a3b1",
+    "limit_amount": 1000,
+    "created_at": "2026-02-11T19:45:22.349+00:00"
+  },
+  {
+    "id": "2f6a93d1-afcd-446b-bd6c-9529d195cfeb",
+    "budget_id": "3adf042c-03e5-4a55-847c-ae1e81ef368a",
+    "category_id": "8c9ca60a-10fa-4aba-a743-1b47f73709bf",
+    "limit_amount": 1200,
+    "created_at": "2026-02-11T19:45:47.685+00:00"
+  }
+]

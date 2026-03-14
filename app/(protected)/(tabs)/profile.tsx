@@ -1,13 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, Platform } from 'react-native';
-import { useRouter } from 'expo-router';
-import { useFocusEffect } from '@react-navigation/native';
-import { Button } from 'tamagui';
 import { useAuth } from '@/contexts/auth-context';
-import { account } from '@/lib/appwrite';
-import { EmotionalCheckin } from '@/components/pilot/EmotionalCheckin';
-import { listDocuments, COLLECTIONS, Query, type AppwriteDocument } from '@/lib/appwrite';
+import { account, COLLECTIONS, listDocuments, Query, type AppwriteDocument } from '@/lib/appwrite';
+import { useFocusEffect } from '@react-navigation/native';
 import { Sparkles, Star } from '@tamagui/lucide-icons';
+import { useRouter } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
+import { Platform, StyleSheet, Text, View } from 'react-native';
+import { Button } from 'tamagui';
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -50,7 +48,7 @@ export default function ProfileScreen() {
   async function signOut() {
     try {
       await account.deleteSessions();
-    } catch {}
+    } catch { }
     await refresh();
     router.replace('/(public)/auth');
   }
@@ -74,11 +72,7 @@ export default function ProfileScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.name}>{profile?.full_name || 'Usuario'}</Text>
-      {profile?.id ? (
-        <View style={styles.checkinWrap}>
-          <EmotionalCheckin userId={profile.id} date={new Date()} compact />
-        </View>
-      ) : null}
+
       <Button
         theme={hasCompletedQuiz ? 'green' : 'blue'}
         size="$4"
@@ -92,8 +86,8 @@ export default function ProfileScreen() {
         {hasCompletedQuiz === null
           ? 'Cargando...'
           : hasCompletedQuiz
-          ? 'Ver mi Personalidad Financiera'
-          : 'Descubre tu Personalidad Financiera'}
+            ? 'Ver mi Personalidad Financiera'
+            : 'Descubre tu Personalidad Financiera'}
       </Button>
       <Button
         theme={hasCompletedArchetypeQuiz ? 'green' : 'blue'}
@@ -108,8 +102,8 @@ export default function ProfileScreen() {
         {hasCompletedArchetypeQuiz === null
           ? 'Cargando...'
           : hasCompletedArchetypeQuiz
-          ? 'Ver mi Arquetipo Financiero'
-          : 'Descubre tu Arquetipo Financiero'}
+            ? 'Ver mi Arquetipo Financiero'
+            : 'Descubre tu Arquetipo Financiero'}
       </Button>
       {(profile?.role === 'ORG_ADMIN' || profile?.role === 'SUPER_ADMIN') && (
         <Button

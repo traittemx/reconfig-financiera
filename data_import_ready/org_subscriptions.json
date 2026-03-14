@@ -1,0 +1,35 @@
+[
+  {
+    "org_id": "ac771ead-9257-420f-ac77-2a536ca1fa1c",
+    "status": "active",
+    "seats_used": 0,
+    "period_start": null,
+    "period_end": null,
+    "membership_cost": null,
+    "notes": null,
+    "seats_total": 10,
+    "updated_at": "2026-01-31T15:25:39.608+00:00"
+  },
+  {
+    "org_id": "c0145c29-c470-4808-8ab2-79dc205bdb49",
+    "status": "active",
+    "seats_used": 0,
+    "period_start": "2026-02-05",
+    "period_end": "2027-02-05",
+    "membership_cost": 4000,
+    "notes": null,
+    "seats_total": 10,
+    "updated_at": "2026-02-06T04:25:45.584+00:00"
+  },
+  {
+    "org_id": "7d8b7c64-f085-4465-9395-f638cf23c402",
+    "status": "active",
+    "seats_used": 0,
+    "period_start": "2026-02-06",
+    "period_end": "2027-02-06",
+    "membership_cost": 0,
+    "notes": null,
+    "seats_total": 100,
+    "updated_at": "2026-02-06T06:31:49.173+00:00"
+  }
+]

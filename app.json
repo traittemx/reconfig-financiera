@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Finaria",
-    "slug": "finaria",
+    "slug": "finaria-9-xkfas0ovt9wsitgmtkt",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -55,7 +55,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "4f452913-e191-488b-9087-72bf4e9d5656"
+        "projectId": "e163260a-a4f5-4838-96f2-e7c53fff30fd"
       }
     },
     "owner": "mikemhz"

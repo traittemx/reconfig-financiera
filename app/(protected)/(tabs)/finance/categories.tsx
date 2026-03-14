@@ -1,20 +1,22 @@
-import { useEffect, useState } from 'react';
-import { View, Text, ScrollView, TextInput, StyleSheet, Alert, Platform, TouchableOpacity } from 'react-native';
-import { MotiView } from 'moti';
-import { Button } from 'tamagui';
-import { TrendingDown, TrendingUp, Pencil, Trash2 } from '@tamagui/lucide-icons';
+import { PointsRewardModal } from '@/components/PointsRewardModal';
 import { useAuth } from '@/contexts/auth-context';
 import { usePoints } from '@/contexts/points-context';
-import { listDocuments, createDocument, updateDocument, deleteDocument, execFunction, COLLECTIONS, Query, type AppwriteDocument } from '@/lib/appwrite';
-import { seedDefaultsLocally, hasDefaultsSeededForUser, setDefaultsSeededForUser } from '@/lib/seed-defaults';
-import { awardPoints } from '@/lib/points';
-import { PointsRewardModal } from '@/components/PointsRewardModal';
+import { COLLECTIONS, createDocument, deleteDocument, execFunction, listDocuments, Query, updateDocument, type AppwriteDocument } from '@/lib/appwrite';
 import {
-  getCategoryIcon,
-  getCategoryColor,
-  CATEGORY_ICON_OPTIONS,
   CATEGORY_COLOR_OPTIONS,
+  CATEGORY_ICON_OPTIONS,
+  getCategoryColor,
+  getCategoryIcon,
 } from '@/lib/category-icons';
+import { awardPoints } from '@/lib/points';
+import { hasDefaultsSeededForUser, seedDefaultsLocally, setDefaultsSeededForUser } from '@/lib/seed-defaults';
+import { Pencil, Tag, Trash2, TrendingDown, TrendingUp } from '@tamagui/lucide-icons';
+import { MotiView } from 'moti';
+import { useEffect, useState } from 'react';
+import { Alert, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Button } from 'tamagui';
+
+import { useRouter } from 'expo-router';
 
 type Category = { id: string; name: string; kind: string; icon?: string | null; color?: string | null };
 
@@ -24,6 +26,7 @@ const KIND_OPTIONS = [
 ];
 
 export default function CategoriesScreen() {
+  const router = useRouter();
   const { profile, refresh } = useAuth();
   const pointsContext = usePoints();
   const [rewardToShow, setRewardToShow] = useState<{ points: number; message: string } | null>(null);
@@ -53,7 +56,7 @@ export default function CategoriesScreen() {
           try {
             await seedDefaultsLocally(profile.org_id!, profile.id);
             ok = true;
-          } catch (_) {}
+          } catch (_) { }
         }
         if (ok) {
           await setDefaultsSeededForUser(profile.id);
@@ -234,6 +237,17 @@ export default function CategoriesScreen() {
           >
             {showForm ? 'Cancelar' : 'Nueva categoría'}
           </Button>
+
+          <Button
+            onPress={() => router.push('/(protected)/(tabs)/finance/labels')}
+            theme="gray"
+            size="$3"
+            width="100%"
+            marginBottom={20}
+            icon={<Tag size={16} />}
+          >
+            Gestionar Etiquetas
+          </Button>
         </MotiView>
 
         {showForm && (
@@ -330,8 +344,8 @@ export default function CategoriesScreen() {
                 from={{ opacity: 0, translateX: -12 }}
                 animate={{ opacity: 1, translateX: 0 }}
                 transition={{ type: 'timing', duration: 320, delay: 180 + index * 50 }}
-              style={styles.catCard}
-            >
+                style={styles.catCard}
+              >
                 <View style={[styles.catIconWrap, { backgroundColor: color + '22' }]}>
                   <IconComp size={22} color={color} />
                 </View>
@@ -364,8 +378,8 @@ export default function CategoriesScreen() {
                 from={{ opacity: 0, translateX: -12 }}
                 animate={{ opacity: 1, translateX: 0 }}
                 transition={{ type: 'timing', duration: 320, delay: 200 + index * 50 }}
-              style={styles.catCard}
-            >
+                style={styles.catCard}
+              >
                 <View style={[styles.catIconWrap, { backgroundColor: color + '22' }]}>
                   <IconComp size={22} color={color} />
                 </View>
@@ -435,7 +449,7 @@ const styles = StyleSheet.create({
     marginBottom: 18,
     fontSize: 16,
     backgroundColor: '#fff',
-    ...(Platform.OS === 'web' && { outlineStyle: 'none' }),
+    ...(Platform.OS === 'web' && { outlineStyle: 'none' as any }),
   },
   iconPicker: { flexDirection: 'row', marginBottom: 18, gap: 8 },
   iconOption: {

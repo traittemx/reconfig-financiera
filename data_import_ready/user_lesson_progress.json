@@ -1,0 +1,292 @@
+[
+  {
+    "id": "d7274746-4e65-451b-a7aa-be9fd72b9a82",
+    "user_id": "cf9c7934-3250-4872-b9b0-45dcde81068f",
+    "day": 1,
+    "org_id": "ac771ead-9257-420f-ac77-2a536ca1fa1c",
+    "unlocked_at": "2026-02-06T00:34:18.322+00:00",
+    "completed_at": "2026-02-06T00:34:18.322+00:00",
+    "notes": "Gracias\npor todo",
+    "lesson_id": 1
+  },
+  {
+    "id": "7193ef4c-4376-418c-a56a-a03ca8553e21",
+    "user_id": "cf9c7934-3250-4872-b9b0-45dcde81068f",
+    "day": 5,
+    "org_id": "ac771ead-9257-420f-ac77-2a536ca1fa1c",
+    "unlocked_at": "2026-02-06T05:33:48.216+00:00",
+    "completed_at": "2026-02-06T05:33:48.216+00:00",
+    "notes": null,
+    "lesson_id": 5
+  },
+  {
+    "id": "436b3416-bd84-4af8-acaa-7c143b76ea9b",
+    "user_id": "cf9c7934-3250-4872-b9b0-45dcde81068f",
+    "day": 2,
+    "org_id": "ac771ead-9257-420f-ac77-2a536ca1fa1c",
+    "unlocked_at": "2026-02-06T05:34:10.683+00:00",
+    "completed_at": "2026-02-06T05:34:10.683+00:00",
+    "notes": null,
+    "lesson_id": 2
+  },
+  {
+    "id": "94698697-b216-44e5-be64-7befe8ec53d9",
+    "user_id": "cf9c7934-3250-4872-b9b0-45dcde81068f",
+    "day": 3,
+    "org_id": "ac771ead-9257-420f-ac77-2a536ca1fa1c",
+    "unlocked_at": "2026-02-06T05:39:53.370+00:00",
+    "completed_at": "2026-02-06T05:39:53.370+00:00",
+    "notes": "Notas",
+    "lesson_id": 3
+  },
+  {
+    "id": "7aa6335f-ab23-425d-bc04-b0087c68e235",
+    "user_id": "cf9c7934-3250-4872-b9b0-45dcde81068f",
+    "day": 4,
+    "org_id": "ac771ead-9257-420f-ac77-2a536ca1fa1c",
+    "unlocked_at": "2026-02-06T05:49:12.964+00:00",
+    "completed_at": "2026-02-06T05:49:12.964+00:00",
+    "notes": null,
+    "lesson_id": 4
+  },
+  {
+    "id": "164fea1e-7e25-4dbe-8abf-ae955330d0f2",
+    "user_id": "9a859aff-89e0-4e51-b8de-af1910615247",
+    "day": 1,
+    "org_id": "7d8b7c64-f085-4465-9395-f638cf23c402",
+    "unlocked_at": "2026-02-06T08:08:35.475+00:00",
+    "completed_at": "2026-02-06T08:08:35.475+00:00",
+    "notes": "Poquito pero seguro, gjgg",
+    "lesson_id": 1
+  },
+  {
+    "id": "2892f672-6b8e-45e6-b25f-a4c4da282465",
+    "user_id": "905a1bd1-5baf-4e52-8255-e0e0041cc632",
+    "day": 1,
+    "org_id": "c0145c29-c470-4808-8ab2-79dc205bdb49",
+    "unlocked_at": "2026-02-06T22:31:48.675+00:00",
+    "completed_at": "2026-02-06T22:31:48.675+00:00",
+    "notes": null,
+    "lesson_id": 1
+  },
+  {
+    "id": "7217763e-78e0-428c-937b-dbd7daf9817f",
+    "user_id": "206c4c7f-a673-4fe0-967e-ecce0f0124ec",
+    "day": 1,
+    "org_id": "c0145c29-c470-4808-8ab2-79dc205bdb49",
+    "unlocked_at": "2026-02-06T22:32:02.898+00:00",
+    "completed_at": "2026-02-06T22:32:02.898+00:00",
+    "notes": null,
+    "lesson_id": 1
+  },
+  {
+    "id": "f16943d9-e458-4d88-ae63-26c0ff625449",
+    "user_id": "1fc7ff42-c4d4-460a-a2ba-fa38ad56cf07",
+    "day": 1,
+    "org_id": "c0145c29-c470-4808-8ab2-79dc205bdb49",
+    "unlocked_at": "2026-02-06T22:32:03.816+00:00",
+    "completed_at": "2026-02-06T22:32:03.816+00:00",
+    "notes": null,
+    "lesson_id": 1
+  },
+  {
+    "id": "042b0c88-9922-4b76-bef8-87da5b68f40d",
+    "user_id": "c8235dce-1f70-4d95-aa6e-943d9005b0d3",
+    "day": 1,
+    "org_id": "c0145c29-c470-4808-8ab2-79dc205bdb49",
+    "unlocked_at": "2026-02-06T22:32:51.373+00:00",
+    "completed_at": "2026-02-06T22:32:51.373+00:00",
+    "notes": null,
+    "lesson_id": 1
+  },
+  {
+    "id": "76a16aa1-8bac-4548-ad3b-66d1c5786d29",
+    "user_id": "57ed4c2d-d38c-410c-b4ff-e6860977263b",
+    "day": 1,
+    "org_id": "c0145c29-c470-4808-8ab2-79dc205bdb49",
+    "unlocked_at": "2026-02-06T23:03:32.327+00:00",
+    "completed_at": "2026-02-06T23:03:32.327+00:00",
+    "notes": null,
+    "lesson_id": 1
+  },
+  {
+    "id": "fcc018f0-3948-43e5-a9e0-3bb313656d1a",
+    "user_id": "905a1bd1-5baf-4e52-8255-e0e0041cc632",
+    "day": 2,
+    "org_id": "c0145c29-c470-4808-8ab2-79dc205bdb49",
+    "unlocked_at": "2026-02-09T14:19:41.738+00:00",
+    "completed_at": "2026-02-09T14:19:41.738+00:00",
+    "notes": "Agregar a mis gastos gym y uñas para contemplarlo en el orden de gastos",
+    "lesson_id": 2
+  },
+  {
+    "id": "9809dc2f-e6c2-4949-8ce3-22d5858d6ca3",
+    "user_id": "6f27d2f7-7bed-42ed-882a-82f85b7690b5",
+    "day": 2,
+    "org_id": "c0145c29-c470-4808-8ab2-79dc205bdb49",
+    "unlocked_at": "2026-02-09T22:06:39.176+00:00",
+    "completed_at": "2026-02-09T22:06:39.176+00:00",
+    "notes": "Renta 8 mil pesos \nHipoteca 5 mil pesos \nComida 3 mil \nEntretenimiento 169\nGasolina 2,400",
+    "lesson_id": 2
+  },
+  {
+    "id": "5fe246b1-f021-4f05-8725-d265b54c6a5e",
+    "user_id": "206c4c7f-a673-4fe0-967e-ecce0f0124ec",
+    "day": 2,
+    "org_id": "c0145c29-c470-4808-8ab2-79dc205bdb49",
+    "unlocked_at": "2026-02-09T22:10:20.898+00:00",
+    "completed_at": "2026-02-09T22:10:20.898+00:00",
+    "notes": null,
+    "lesson_id": 2
+  },
+  {
+    "id": "6b1ccbde-6ef0-4485-86ef-9b28250ba625",
+    "user_id": "1fc7ff42-c4d4-460a-a2ba-fa38ad56cf07",
+    "day": 2,
+    "org_id": "c0145c29-c470-4808-8ab2-79dc205bdb49",
+    "unlocked_at": "2026-02-09T22:37:31.586+00:00",
+    "completed_at": "2026-02-09T22:37:31.586+00:00",
+    "notes": null,
+    "lesson_id": 2
+  },
+  {
+    "id": "c41bdb1a-ac6f-4c3c-995b-adc8cc7ff61e",
+    "user_id": "c8235dce-1f70-4d95-aa6e-943d9005b0d3",
+    "day": 2,
+    "org_id": "c0145c29-c470-4808-8ab2-79dc205bdb49",
+    "unlocked_at": "2026-02-10T02:08:31.903+00:00",
+    "completed_at": "2026-02-10T02:08:31.903+00:00",
+    "notes": null,
+    "lesson_id": 2
+  },
+  {
+    "id": "30696485-52df-44c9-8635-892e4c2cba00",
+    "user_id": "905a1bd1-5baf-4e52-8255-e0e0041cc632",
+    "day": 3,
+    "org_id": "c0145c29-c470-4808-8ab2-79dc205bdb49",
+    "unlocked_at": "2026-02-10T14:29:07.385+00:00",
+    "completed_at": "2026-02-10T14:29:07.385+00:00",
+    "notes": null,
+    "lesson_id": 3
+  },
+  {
+    "id": "edc1d565-7638-4c03-8cd2-34bcb5d81846",
+    "user_id": "1fc7ff42-c4d4-460a-a2ba-fa38ad56cf07",
+    "day": 3,
+    "org_id": "c0145c29-c470-4808-8ab2-79dc205bdb49",
+    "unlocked_at": "2026-02-10T16:36:12.528+00:00",
+    "completed_at": "2026-02-10T16:36:12.528+00:00",
+    "notes": null,
+    "lesson_id": 3
+  },
+  {
+    "id": "9ca018fe-87f7-435f-a702-ac88e051ec35",
+    "user_id": "206c4c7f-a673-4fe0-967e-ecce0f0124ec",
+    "day": 3,
+    "org_id": "c0145c29-c470-4808-8ab2-79dc205bdb49",
+    "unlocked_at": "2026-02-10T17:04:41.874+00:00",
+    "completed_at": "2026-02-10T17:04:41.874+00:00",
+    "notes": null,
+    "lesson_id": 3
+  },
+  {
+    "id": "b3fd86fb-8fe8-4d7d-a079-723e7acd955b",
+    "user_id": "905a1bd1-5baf-4e52-8255-e0e0041cc632",
+    "day": 4,
+    "org_id": "c0145c29-c470-4808-8ab2-79dc205bdb49",
+    "unlocked_at": "2026-02-11T15:27:24.272+00:00",
+    "completed_at": "2026-02-11T15:27:24.272+00:00",
+    "notes": null,
+    "lesson_id": 4
+  },
+  {
+    "id": "36d102e4-4d00-4ed7-8aeb-b61b2ac8d790",
+    "user_id": "1fc7ff42-c4d4-460a-a2ba-fa38ad56cf07",
+    "day": 4,
+    "org_id": "c0145c29-c470-4808-8ab2-79dc205bdb49",
+    "unlocked_at": "2026-02-11T16:17:36.566+00:00",
+    "completed_at": "2026-02-11T16:17:36.566+00:00",
+    "notes": null,
+    "lesson_id": 4
+  },
+  {
+    "id": "116e2ce1-e50c-4773-896e-ae078a092ae9",
+    "user_id": "c8235dce-1f70-4d95-aa6e-943d9005b0d3",
+    "day": 3,
+    "org_id": "c0145c29-c470-4808-8ab2-79dc205bdb49",
+    "unlocked_at": "2026-02-11T20:48:14.051+00:00",
+    "completed_at": "2026-02-11T20:48:14.051+00:00",
+    "notes": null,
+    "lesson_id": 3
+  },
+  {
+    "id": "1001e09c-c406-4913-838b-d8d4b6946737",
+    "user_id": "905a1bd1-5baf-4e52-8255-e0e0041cc632",
+    "day": 5,
+    "org_id": "c0145c29-c470-4808-8ab2-79dc205bdb49",
+    "unlocked_at": "2026-02-12T14:13:01.662+00:00",
+    "completed_at": "2026-02-12T14:13:01.662+00:00",
+    "notes": "Reducir: \nRegalos para mi misma \nGastos más de 2,000 comida \nCompras TDC",
+    "lesson_id": 5
+  },
+  {
+    "id": "566c7389-527d-44a3-8573-b0a10b1cb934",
+    "user_id": "1fc7ff42-c4d4-460a-a2ba-fa38ad56cf07",
+    "day": 5,
+    "org_id": "c0145c29-c470-4808-8ab2-79dc205bdb49",
+    "unlocked_at": "2026-02-12T14:29:19.294+00:00",
+    "completed_at": "2026-02-12T14:29:19.294+00:00",
+    "notes": null,
+    "lesson_id": 5
+  },
+  {
+    "id": "914f4496-ca7a-435c-b7f4-8de767af07c7",
+    "user_id": "c8235dce-1f70-4d95-aa6e-943d9005b0d3",
+    "day": 4,
+    "org_id": "c0145c29-c470-4808-8ab2-79dc205bdb49",
+    "unlocked_at": "2026-02-12T21:22:01.787+00:00",
+    "completed_at": "2026-02-12T21:22:01.787+00:00",
+    "notes": null,
+    "lesson_id": 4
+  },
+  {
+    "id": "e0bd017d-c2fc-4323-bbdf-eb5b5d9623f3",
+    "user_id": "1fc7ff42-c4d4-460a-a2ba-fa38ad56cf07",
+    "day": 6,
+    "org_id": "c0145c29-c470-4808-8ab2-79dc205bdb49",
+    "unlocked_at": "2026-02-13T14:34:00.012+00:00",
+    "completed_at": "2026-02-13T14:34:00.012+00:00",
+    "notes": null,
+    "lesson_id": 6
+  },
+  {
+    "id": "b6c3dda6-2473-4c10-a03d-08d100e51809",
+    "user_id": "905a1bd1-5baf-4e52-8255-e0e0041cc632",
+    "day": 6,
+    "org_id": "c0145c29-c470-4808-8ab2-79dc205bdb49",
+    "unlocked_at": "2026-02-13T14:39:52.455+00:00",
+    "completed_at": "2026-02-13T14:39:52.455+00:00",
+    "notes": "Ahorro:$3000 (nómina)\nLibertad financiera: $300 (nómina)\nNecesidades: 900(nómina) TDC\nJuego: 600(nómina)\nEducación: 300\nDar: 800",
+    "lesson_id": 6
+  },
+  {
+    "id": "5ddf3feb-8d0e-4cd4-ac4a-19adf5cec9c6",
+    "user_id": "c8235dce-1f70-4d95-aa6e-943d9005b0d3",
+    "day": 5,
+    "org_id": "c0145c29-c470-4808-8ab2-79dc205bdb49",
+    "unlocked_at": "2026-02-14T16:29:19.722+00:00",
+    "completed_at": "2026-02-14T16:29:19.722+00:00",
+    "notes": null,
+    "lesson_id": 5
+  },
+  {
+    "id": "91ced63d-fa9a-4134-bf0c-b0f7091f21b3",
+    "user_id": "c70cf53f-d566-40fa-b9f9-9579e45626fa",
+    "day": 1,
+    "org_id": "c0145c29-c470-4808-8ab2-79dc205bdb49",
+    "unlocked_at": "2026-02-15T05:47:41.316+00:00",
+    "completed_at": "2026-02-15T05:47:41.316+00:00",
+    "notes": null,
+    "lesson_id": 1
+  }
+]

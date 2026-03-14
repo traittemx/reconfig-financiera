@@ -1,8 +1,21 @@
 {
-  "extends": "expo/tsconfig.base",
+  "extends": "expo/tsconfig.base.json",
   "compilerOptions": {
     "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "jsx": "react-native",
+    "baseUrl": ".",
+    "moduleResolution": "bundler",
+    "module": "ESNext",
     "paths": {
+      "expo-router": [
+        "./node_modules/expo-router/build/index.d.ts"
+      ],
+      "expo-router/*": [
+        "./node_modules/expo-router/build/*"
+      ],
       "@/*": [
         "./*"
       ]

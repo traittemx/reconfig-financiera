@@ -1,12 +1,10 @@
-import { useEffect } from 'react';
-import { Stack, useRouter, usePathname } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { View, Text, ActivityIndicator, Pressable, StyleSheet } from 'react-native';
-import { format } from 'date-fns';
 import { useAuth } from '@/contexts/auth-context';
 import { PointsProvider } from '@/contexts/points-context';
+import { Stack, usePathname, useRouter } from 'expo-router';
+import { useEffect } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
-const PILOT_CONTINUED_KEY = 'pilot_continued_date';
+
 
 export default function ProtectedLayout() {
   const router = useRouter();
@@ -31,13 +29,6 @@ export default function ProtectedLayout() {
     if (pathname?.includes('hoy')) return;
     if (pathname?.includes('org') || pathname?.includes('superadmin')) return;
     if (pathname?.includes('subscription-required')) return;
-
-    const today = format(new Date(), 'yyyy-MM-dd');
-    AsyncStorage.getItem(PILOT_CONTINUED_KEY).then((stored) => {
-      if (stored !== today) {
-        router.replace('/(protected)/hoy');
-      }
-    });
   }, [loading, session, profile, canAccessApp, pathname, router]);
 
   if (loading || loadingProfile) {

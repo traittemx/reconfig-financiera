@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Pressable, Platform } from 'react-native';
-import { Audio } from 'expo-av';
 import Slider from '@react-native-community/slider';
-import { Play, Pause } from '@tamagui/lucide-icons';
+import { Pause, Play } from '@tamagui/lucide-icons';
+import { Audio } from 'expo-av';
+import { useEffect, useState } from 'react';
+import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -63,7 +63,6 @@ export function LessonAudioPlayer({ audioUrl }: Props) {
     })();
     return () => {
       mounted = false;
-      if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [audioUrl]);
 
@@ -123,19 +122,31 @@ export function LessonAudioPlayer({ audioUrl }: Props) {
     <View style={styles.container}>
       <View style={styles.card}>
         <Text style={styles.label}>Escucha la lección</Text>
-        <Pressable
-          style={({ pressed }) => [styles.playButton, pressed && styles.playButtonPressed]}
+
+        <TouchableOpacity
+          style={styles.playerMain}
           onPress={togglePlayPause}
+          activeOpacity={0.7}
         >
-          {isPlaying ? (
-            <Pause size={36} color="#fff" strokeWidth={2.5} />
-          ) : (
-            <Play size={36} color="#fff" strokeWidth={2.5} style={{ marginLeft: 4 }} />
-          )}
-        </Pressable>
-        <Text style={styles.statusText}>{isPlaying ? 'Reproduciendo' : 'Pausado'}</Text>
-        <View style={styles.sliderRow}>
-          <Text style={styles.timeText}>{formatTime(position)}</Text>
+          <View style={styles.playButton}>
+            {isPlaying ? (
+              <Pause size={24} color="#fff" fill="#fff" strokeWidth={2.5} />
+            ) : (
+              <Play size={24} color="#fff" fill="#fff" strokeWidth={2.5} style={{ marginLeft: 2 }} />
+            )}
+          </View>
+
+          <View style={styles.statusContainer}>
+            <Text style={styles.statusTitle}>
+              {isPlaying ? 'Reproduciendo...' : 'Audio Pausado'}
+            </Text>
+            <Text style={styles.statusSubtitle}>
+              {isPlaying ? 'Escuchando la clase' : 'Presiona para reproducir'}
+            </Text>
+          </View>
+        </TouchableOpacity>
+
+        <View style={styles.sliderSection}>
           <Slider
             style={styles.slider}
             minimumValue={0}
@@ -147,7 +158,10 @@ export function LessonAudioPlayer({ audioUrl }: Props) {
             maximumTrackTintColor="#e2e8f0"
             thumbTintColor="#2563eb"
           />
-          <Text style={styles.timeText}>{formatTime(duration)}</Text>
+          <View style={styles.timeRow}>
+            <Text style={styles.timeText}>{formatTime(position)}</Text>
+            <Text style={styles.timeText}>{formatTime(duration)}</Text>
+          </View>
         </View>
       </View>
     </View>
@@ -155,52 +169,87 @@ export function LessonAudioPlayer({ audioUrl }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: { marginBottom: 24 },
+  container: { marginBottom: 16 },
   card: {
-    backgroundColor: '#f8fafc',
-    borderRadius: 16,
+    backgroundColor: '#ffffff',
+    borderRadius: 24,
     padding: 24,
-    ...Platform.select({
-      ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 8 },
-      android: { elevation: 4 },
-      web: { boxShadow: '0 2px 12px rgba(0,0,0,0.08)' },
-    }),
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: '#f1f5f9',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.05,
+        shadowRadius: 10,
+      },
+      android: { elevation: 2 },
+    }),
   },
   label: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#64748b',
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#3b82f6',
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 16,
-    textAlign: 'center',
+    letterSpacing: 1.5,
+    marginBottom: 20,
+    opacity: 0.9,
   },
-  playButton: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: '#2563eb',
-    alignItems: 'center',
-    justifyContent: 'center',
-    alignSelf: 'center',
-    marginBottom: 12,
-  },
-  playButtonPressed: { opacity: 0.85 },
-  statusText: {
-    fontSize: 14,
-    color: '#64748b',
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  sliderRow: {
+  playerMain: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    marginBottom: 20,
+    backgroundColor: '#f8fafc',
+    padding: 16,
+    borderRadius: 20,
   },
-  slider: { flex: 1, height: 40 },
-  timeText: { fontSize: 12, color: '#64748b', minWidth: 36 },
+  playButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#2563eb',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
+    shadowColor: '#2563eb',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  statusContainer: {
+    flex: 1,
+  },
+  statusTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#0f172a',
+    marginBottom: 2,
+    letterSpacing: -0.4,
+  },
+  statusSubtitle: {
+    fontSize: 13,
+    color: '#64748b',
+    fontWeight: '500',
+  },
+  sliderSection: {
+    paddingHorizontal: 4,
+  },
+  slider: {
+    width: '100%',
+    height: 40,
+  },
+  timeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: -4,
+  },
+  timeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#94a3b8',
+    fontVariant: ['tabular-nums'],
+  },
   loadingText: { fontSize: 14, color: '#64748b', textAlign: 'center', padding: 24 },
   errorText: { fontSize: 14, color: '#dc2626', textAlign: 'center', padding: 24 },
 });

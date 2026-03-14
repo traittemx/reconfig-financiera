@@ -1,0 +1,26 @@
+[
+  {
+    "id": "a0c71d33-0945-4fbe-ad48-6296ec57887f",
+    "org_id": "7d8b7c64-f085-4465-9395-f638cf23c402",
+    "user_id": "9a859aff-89e0-4e51-b8de-af1910615247",
+    "month": "0000-01",
+    "name": "Presupuesto",
+    "created_at": "2026-02-06T22:37:49.694+00:00"
+  },
+  {
+    "id": "6a9cd095-78f6-4f62-a0d6-f32a859440f4",
+    "org_id": "c0145c29-c470-4808-8ab2-79dc205bdb49",
+    "user_id": "206c4c7f-a673-4fe0-967e-ecce0f0124ec",
+    "month": "0000-01",
+    "name": "Presupuesto",
+    "created_at": "2026-02-10T01:33:54.835+00:00"
+  },
+  {
+    "id": "3adf042c-03e5-4a55-847c-ae1e81ef368a",
+    "org_id": "c0145c29-c470-4808-8ab2-79dc205bdb49",
+    "user_id": "1fc7ff42-c4d4-460a-a2ba-fa38ad56cf07",
+    "month": "0000-01",
+    "name": "Presupuesto",
+    "created_at": "2026-02-11T19:45:21.893+00:00"
+  }
+]

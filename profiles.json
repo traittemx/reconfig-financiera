@@ -1,0 +1,128 @@
+[
+  {
+    "id": "7a9464da-3e9a-4ab0-8ff7-11888b1ec652",
+    "full_name": "Usuario Demo",
+    "org_id": "4babe1ff-5c09-41ef-bffa-bf136ab0209c",
+    "role": "ORG_ADMIN",
+    "created_at": "2026-02-15T21:14:16.327Z",
+    "updated_at": "2026-02-15T21:14:16.328Z",
+    "start_date": "2026-01-31"
+  },
+  {
+    "id": "96369ca0-21e0-44fc-95ae-d323f9ac0bb9",
+    "full_name": "Super Admin",
+    "org_id": "4babe1ff-5c09-41ef-bffa-bf136ab0209c",
+    "role": "SUPER_ADMIN",
+    "created_at": "2026-02-15T21:14:16.328Z",
+    "updated_at": "2026-02-15T21:14:16.328Z",
+    "start_date": "2026-02-06"
+  },
+  {
+    "id": "0fe35c2b-d093-4825-9654-99d2fb24a0f0",
+    "full_name": "Miguel",
+    "org_id": "5fa89125-de60-4981-87bc-b93e380c1aae",
+    "role": "EMPLOYEE",
+    "created_at": "2026-02-15T21:14:16.328Z",
+    "updated_at": "2026-02-15T21:14:16.328Z",
+    "start_date": "2026-02-06"
+  },
+  {
+    "id": "d9ae3736-4e31-4981-b0ef-cb5b8bd54064",
+    "full_name": "Antonio Mendoza",
+    "org_id": "23c2cfa1-2f26-4be5-a58b-246be3b1ec0f",
+    "role": "EMPLOYEE",
+    "created_at": "2026-02-15T21:14:16.328Z",
+    "updated_at": "2026-02-15T21:14:16.328Z",
+    "start_date": "2026-02-06"
+  },
+  {
+    "id": "ec946a98-b480-4e6d-865d-34980438f15c",
+    "full_name": "Hilda Márquez Flores",
+    "org_id": "23c2cfa1-2f26-4be5-a58b-246be3b1ec0f",
+    "role": "EMPLOYEE",
+    "created_at": "2026-02-15T21:14:16.328Z",
+    "updated_at": "2026-02-15T21:14:16.328Z",
+    "start_date": "2026-02-06"
+  },
+  {
+    "id": "32fd25a5-7c5d-41ba-b0c9-89d7a8f252eb",
+    "full_name": "María José Herrera Reyna",
+    "org_id": "23c2cfa1-2f26-4be5-a58b-246be3b1ec0f",
+    "role": "EMPLOYEE",
+    "created_at": "2026-02-15T21:14:16.328Z",
+    "updated_at": "2026-02-15T21:14:16.328Z",
+    "start_date": "2026-02-06"
+  },
+  {
+    "id": "7ba2d6f7-83cb-4059-b2df-964a020156f1",
+    "full_name": "césar antonio alonso ramirez bobadilla",
+    "org_id": "5fa89125-de60-4981-87bc-b93e380c1aae",
+    "role": "EMPLOYEE",
+    "created_at": "2026-02-15T21:14:16.328Z",
+    "updated_at": "2026-02-15T21:14:16.328Z",
+    "start_date": "2026-02-08"
+  },
+  {
+    "id": "c05dd1d1-2776-4ee3-a029-ab4850404df5",
+    "full_name": "Perla Noemi",
+    "org_id": "23c2cfa1-2f26-4be5-a58b-246be3b1ec0f",
+    "role": "EMPLOYEE",
+    "created_at": "2026-02-15T21:14:16.328Z",
+    "updated_at": "2026-02-15T21:14:16.328Z",
+    "start_date": "2026-02-06"
+  },
+  {
+    "id": "348c52da-6580-4605-9df1-2136c189e263",
+    "full_name": "Edgar",
+    "org_id": "23c2cfa1-2f26-4be5-a58b-246be3b1ec0f",
+    "role": "EMPLOYEE",
+    "created_at": "2026-02-15T21:14:16.328Z",
+    "updated_at": "2026-02-15T21:14:16.328Z",
+    "start_date": "2026-02-06"
+  },
+  {
+    "id": "eedf1d64-29f8-4304-b16e-9c592223c439",
+    "full_name": "Monse Miranda",
+    "org_id": "23c2cfa1-2f26-4be5-a58b-246be3b1ec0f",
+    "role": "EMPLOYEE",
+    "created_at": "2026-02-15T21:14:16.328Z",
+    "updated_at": "2026-02-15T21:14:16.328Z",
+    "start_date": "2026-02-06"
+  },
+  {
+    "id": "b747a74f-6471-4cd6-a53d-99acb6482ef2",
+    "full_name": "Cinthya",
+    "org_id": "5fa89125-de60-4981-87bc-b93e380c1aae",
+    "role": "EMPLOYEE",
+    "start_date": null,
+    "updated_at": "2026-02-06T15:34:31.077+00:00",
+    "avatar_url": null
+  },
+  {
+    "id": "3c1d41ac-c519-4771-aac7-0d07f6735847",
+    "full_name": "Betsabe Ibarra",
+    "org_id": "23c2cfa1-2f26-4be5-a58b-246be3b1ec0f",
+    "role": "EMPLOYEE",
+    "start_date": "2026-02-06",
+    "updated_at": "2026-02-06T22:32:17.171+00:00",
+    "avatar_url": null
+  },
+  {
+    "id": "2984b163-128b-49ea-9487-a38339a4bc8c",
+    "full_name": "Ricardo facundo",
+    "org_id": "23c2cfa1-2f26-4be5-a58b-246be3b1ec0f",
+    "role": "EMPLOYEE",
+    "start_date": "2026-02-06",
+    "updated_at": "2026-02-06T22:55:34.303+00:00",
+    "avatar_url": null
+  },
+  {
+    "id": "03fdcde4-b5a5-4b38-9faa-3bd52fac53cf",
+    "full_name": "Fernando Ivan Martinez Alonso",
+    "org_id": "5fa89125-de60-4981-87bc-b93e380c1aae",
+    "role": "EMPLOYEE",
+    "start_date": null,
+    "updated_at": "2026-02-09T18:35:01.488+00:00",
+    "avatar_url": null
+  }
+]

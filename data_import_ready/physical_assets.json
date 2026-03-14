@@ -1,0 +1,18 @@
+[
+  {
+    "id": "b59fffe0-8efb-4dee-b5be-924f4909b60c",
+    "user_id": "cf9c7934-3250-4872-b9b0-45dcde81068f",
+    "org_id": "ac771ead-9257-420f-ac77-2a536ca1fa1c",
+    "name": "Laptop",
+    "amount": 5000,
+    "created_at": "2026-01-31T16:38:42.556+00:00"
+  },
+  {
+    "id": "029391e4-3b00-47ae-a79e-5dd752cbaa8c",
+    "user_id": "cf9c7934-3250-4872-b9b0-45dcde81068f",
+    "org_id": "ac771ead-9257-420f-ac77-2a536ca1fa1c",
+    "name": "Auto",
+    "amount": 50000,
+    "created_at": "2026-01-31T16:47:09.691+00:00"
+  }
+]

@@ -1,0 +1,62 @@
+[
+  {
+    "key": "CREATE_EXPENSE",
+    "points": 10,
+    "is_active": true
+  },
+  {
+    "key": "CREATE_INCOME",
+    "points": 10,
+    "is_active": true
+  },
+  {
+    "key": "CREATE_ACCOUNT",
+    "points": 15,
+    "is_active": true
+  },
+  {
+    "key": "CREATE_CATEGORY",
+    "points": 15,
+    "is_active": true
+  },
+  {
+    "key": "CREATE_BUDGET",
+    "points": 20,
+    "is_active": true
+  },
+  {
+    "key": "LESSON_COMPLETED",
+    "points": 50,
+    "is_active": true
+  },
+  {
+    "key": "MISSION_COMPLETED",
+    "points": 30,
+    "is_active": true
+  },
+  {
+    "key": "CREATE_INCOME_SOURCE",
+    "points": 25,
+    "is_active": true
+  },
+  {
+    "key": "STREAK_5_DAYS",
+    "points": 100,
+    "is_active": true
+  },
+  {
+    "key": "RECOMMENDATION_FOLLOWED",
+    "points": 25,
+    "is_active": true
+  },
+  {
+    "key": "CRITICAL_DAY_LOGGED",
+    "points": 15,
+    "is_active": true
+  },
+  {
+    "key": "RESCUE",
+    "points": 10,
+    "is_active": true
+  }
+]

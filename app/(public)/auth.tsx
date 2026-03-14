@@ -1,21 +1,21 @@
-import { useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  Alert,
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  Platform,
-} from 'react-native';
-import { Link, useRouter } from 'expo-router';
-import { Button } from 'tamagui';
-import { Mail, Lock, Eye, EyeOff } from '@tamagui/lucide-icons';
-import { account } from '@/lib/appwrite';
-import { useAuth } from '@/contexts/auth-context';
 import { AuthIllustration } from '@/components/auth-illustration';
 import { AuthInput } from '@/components/auth-input';
+import { useAuth } from '@/contexts/auth-context';
+import { account } from '@/lib/appwrite';
+import { Eye, EyeOff, Lock, Mail } from '@tamagui/lucide-icons';
+import { Link, useRouter } from 'expo-router';
+import { useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import { Button } from 'tamagui';
 
 /** En web Alert.alert no se muestra; usamos window.alert. */
 function showError(title: string, message: string) {
@@ -55,7 +55,7 @@ export default function AuthScreen() {
         showError(
           'No se pudo cargar tu perfil',
           isPermission
-            ? 'Faltan permisos en Appwrite. En la consola, base finaria → colecciones profiles y org_subscriptions → Permissions → rol Users con Read (y Create/Update en profiles).'
+            ? 'Faltan permisos. Contacta al administrador si el problema persiste.'
             : `Revisa tu conexión e intenta de nuevo.${msg ? ` (${msg})` : ''}`
         );
         setLoading(false);
@@ -85,84 +85,84 @@ export default function AuthScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.card}>
-        <AuthIllustration variant="signin" />
-        <Text style={styles.title}>Iniciar sesión</Text>
-        <Text style={styles.subtitle}>
-          Introduce tu email y contraseña para continuar
-        </Text>
+          <AuthIllustration variant="signin" />
+          <Text style={styles.title}>Iniciar sesión</Text>
+          <Text style={styles.subtitle}>
+            Introduce tu email y contraseña para continuar
+          </Text>
 
-        <AuthInput
-          leftIcon={<Mail size={20} color="#9ca3af" />}
-          placeholder="Email"
-          value={email}
-          onChangeText={setEmail}
-          autoCapitalize="none"
-          autoCorrect={false}
-          keyboardType="email-address"
-          textContentType="emailAddress"
-          editable={!loading}
-        />
+          <AuthInput
+            leftIcon={<Mail size={20} color="#9ca3af" />}
+            placeholder="Email"
+            value={email}
+            onChangeText={setEmail}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="email-address"
+            textContentType="emailAddress"
+            editable={!loading}
+          />
 
-        <AuthInput
-          leftIcon={<Lock size={20} color="#9ca3af" />}
-          rightIcon={
-            showPassword ? (
-              <EyeOff size={20} color="#9ca3af" />
-            ) : (
-              <Eye size={20} color="#9ca3af" />
-            )
-          }
-          onRightPress={() => setShowPassword((v) => !v)}
-          placeholder="Contraseña"
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry={!showPassword}
-          textContentType="password"
-          editable={!loading}
-        />
+          <AuthInput
+            leftIcon={<Lock size={20} color="#9ca3af" />}
+            rightIcon={
+              showPassword ? (
+                <EyeOff size={20} color="#9ca3af" />
+              ) : (
+                <Eye size={20} color="#9ca3af" />
+              )
+            }
+            onRightPress={() => setShowPassword((v) => !v)}
+            placeholder="Contraseña"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry={!showPassword}
+            textContentType="password"
+            editable={!loading}
+          />
 
-        <Link href="/(public)/forgot-password" asChild style={styles.forgotWrap}>
-          <Pressable>
-            <Text style={styles.forgotText}>¿Olvidaste tu contraseña?</Text>
-          </Pressable>
-        </Link>
-
-        <Button
-          theme="blue"
-          size="$4"
-          onPress={signIn}
-          disabled={loading}
-          width="100%"
-          style={styles.primaryButton}
-        >
-          {loading ? (
-            <ActivityIndicator color="#fff" size="small" />
-          ) : (
-            'Entrar'
-          )}
-        </Button>
-
-        <View style={styles.divider}>
-          <View style={styles.dividerLine} />
-          <Text style={styles.dividerText}>O continuar con</Text>
-          <View style={styles.dividerLine} />
-        </View>
-
-        <Link href="/(public)/signup" asChild style={styles.signupLink}>
-          <Button theme="gray" size="$4" variant="outlined" width="100%">
-            Crear cuenta y vincularme a una empresa
-          </Button>
-        </Link>
-
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>¿No tienes cuenta? </Text>
-          <Link href="/(public)/signup" asChild>
+          <Link href="/(public)/forgot-password" asChild style={styles.forgotWrap}>
             <Pressable>
-              <Text style={styles.footerLink}>Crear cuenta</Text>
+              <Text style={styles.forgotText}>¿Olvidaste tu contraseña?</Text>
             </Pressable>
           </Link>
+
+          <Button
+            theme="blue"
+            size="$4"
+            onPress={signIn}
+            disabled={loading}
+            width="100%"
+            style={styles.primaryButton}
+          >
+            {loading ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              'Entrar'
+            )}
+          </Button>
+
+          <View style={styles.divider}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>O continuar con</Text>
+            <View style={styles.dividerLine} />
+          </View>
+
+          <Link href="/(public)/signup" asChild style={styles.signupLink}>
+            <Button theme="gray" size="$4" variant="outlined" width="100%">
+              Crear cuenta y vincularme a una empresa
+            </Button>
+          </Link>
+
+          <View style={styles.footer}>
+            <Text style={styles.footerText}>¿No tienes cuenta? </Text>
+            <Link href="/(public)/signup" asChild>
+              <Pressable>
+                <Text style={styles.footerLink}>Crear cuenta</Text>
+              </Pressable>
+            </Link>
+          </View>
         </View>
-      </View>
       </ScrollView>
     </View>
   );

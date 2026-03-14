@@ -1,0 +1,128 @@
+[
+  {
+    "id": "cf9c7934-3250-4872-b9b0-45dcde81068f",
+    "full_name": "Usuario Demo",
+    "org_id": "ac771ead-9257-420f-ac77-2a536ca1fa1c",
+    "role": "ORG_ADMIN",
+    "start_date": "2026-01-31",
+    "avatar_url": null,
+    "created_at": "2026-01-30T21:33:08.912+00:00"
+  },
+  {
+    "id": "623c41f6-d551-4827-8926-8b891ca27d88",
+    "full_name": "Super Admin",
+    "org_id": null,
+    "role": "SUPER_ADMIN",
+    "start_date": "2026-02-06",
+    "avatar_url": null,
+    "created_at": "2026-02-06T00:46:05.551+00:00"
+  },
+  {
+    "id": "9a859aff-89e0-4e51-b8de-af1910615247",
+    "full_name": "Miguel",
+    "org_id": "7d8b7c64-f085-4465-9395-f638cf23c402",
+    "role": "EMPLOYEE",
+    "start_date": "2026-02-06",
+    "avatar_url": null,
+    "created_at": "2026-02-06T07:40:06.780+00:00"
+  },
+  {
+    "id": "bcdee46d-e0f7-4b1e-9d78-9ecf7988a5e4",
+    "full_name": "Cinthya",
+    "org_id": "7d8b7c64-f085-4465-9395-f638cf23c402",
+    "role": "EMPLOYEE",
+    "start_date": null,
+    "avatar_url": null,
+    "created_at": "2026-02-06T15:34:24.664+00:00"
+  },
+  {
+    "id": "89025497-0a0d-43ff-a52a-b051d3740f83",
+    "full_name": "Antonio Mendoza",
+    "org_id": "c0145c29-c470-4808-8ab2-79dc205bdb49",
+    "role": "EMPLOYEE",
+    "start_date": "2026-02-06",
+    "avatar_url": null,
+    "created_at": "2026-02-06T21:52:14.854+00:00"
+  },
+  {
+    "id": "c8235dce-1f70-4d95-aa6e-943d9005b0d3",
+    "full_name": "Hilda Márquez Flores",
+    "org_id": "c0145c29-c470-4808-8ab2-79dc205bdb49",
+    "role": "EMPLOYEE",
+    "start_date": "2026-02-06",
+    "avatar_url": null,
+    "created_at": "2026-02-06T22:00:50.557+00:00"
+  },
+  {
+    "id": "206c4c7f-a673-4fe0-967e-ecce0f0124ec",
+    "full_name": "María José Herrera Reyna",
+    "org_id": "c0145c29-c470-4808-8ab2-79dc205bdb49",
+    "role": "EMPLOYEE",
+    "start_date": "2026-02-06",
+    "avatar_url": null,
+    "created_at": "2026-02-06T22:01:09.076+00:00"
+  },
+  {
+    "id": "905a1bd1-5baf-4e52-8255-e0e0041cc632",
+    "full_name": "Perla Noemi",
+    "org_id": "c0145c29-c470-4808-8ab2-79dc205bdb49",
+    "role": "EMPLOYEE",
+    "start_date": "2026-02-06",
+    "avatar_url": null,
+    "created_at": "2026-02-06T22:01:13.251+00:00"
+  },
+  {
+    "id": "6f27d2f7-7bed-42ed-882a-82f85b7690b5",
+    "full_name": "Edgar",
+    "org_id": "c0145c29-c470-4808-8ab2-79dc205bdb49",
+    "role": "EMPLOYEE",
+    "start_date": "2026-02-06",
+    "avatar_url": null,
+    "created_at": "2026-02-06T22:01:13.681+00:00"
+  },
+  {
+    "id": "1fc7ff42-c4d4-460a-a2ba-fa38ad56cf07",
+    "full_name": "Monse Miranda",
+    "org_id": "c0145c29-c470-4808-8ab2-79dc205bdb49",
+    "role": "EMPLOYEE",
+    "start_date": "2026-02-06",
+    "avatar_url": null,
+    "created_at": "2026-02-06T22:05:38.167+00:00"
+  },
+  {
+    "id": "c70cf53f-d566-40fa-b9f9-9579e45626fa",
+    "full_name": "Betsabe Ibarra",
+    "org_id": "c0145c29-c470-4808-8ab2-79dc205bdb49",
+    "role": "EMPLOYEE",
+    "start_date": "2026-02-06",
+    "avatar_url": null,
+    "created_at": "2026-02-06T22:08:49.749+00:00"
+  },
+  {
+    "id": "57ed4c2d-d38c-410c-b4ff-e6860977263b",
+    "full_name": "Ricardo facundo",
+    "org_id": "c0145c29-c470-4808-8ab2-79dc205bdb49",
+    "role": "EMPLOYEE",
+    "start_date": "2026-02-06",
+    "avatar_url": null,
+    "created_at": "2026-02-06T22:55:19.285+00:00"
+  },
+  {
+    "id": "900cfc54-2551-4271-b849-190402082b62",
+    "full_name": "césar antonio alonso ramirez bobadilla",
+    "org_id": "7d8b7c64-f085-4465-9395-f638cf23c402",
+    "role": "EMPLOYEE",
+    "start_date": "2026-02-08",
+    "avatar_url": null,
+    "created_at": "2026-02-08T23:01:05.413+00:00"
+  },
+  {
+    "id": "560f55b4-4ff1-42bf-8ccd-d5adbeec894e",
+    "full_name": "Fernando Ivan Martinez Alonso",
+    "org_id": "7d8b7c64-f085-4465-9395-f638cf23c402",
+    "role": "EMPLOYEE",
+    "start_date": null,
+    "avatar_url": null,
+    "created_at": "2026-02-09T18:34:56.255+00:00"
+  }
+]

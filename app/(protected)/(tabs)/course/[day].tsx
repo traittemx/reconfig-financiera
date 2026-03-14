@@ -1,30 +1,30 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, TextInput, ScrollView, StyleSheet, Alert, Platform, TouchableOpacity } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Button } from 'tamagui';
-import { MotiView } from 'moti';
-import { ChevronLeft, CheckCircle2, Sparkles } from '@tamagui/lucide-icons';
-import * as Haptics from 'expo-haptics';
-import { useAuth } from '@/contexts/auth-context';
-import { usePoints } from '@/contexts/points-context';
-import { getDayUnlocked, getUnlockDateForLesson, parseLocalDateString } from '@/lib/business-days';
-import {
-  getDocument,
-  listDocuments,
-  createDocument,
-  updateDocument,
-  COLLECTIONS,
-  Query,
-  ID,
-  type AppwriteDocument,
-} from '@/lib/appwrite';
-import { awardPoints } from '@/lib/points';
-import { format } from 'date-fns';
-import { es } from 'date-fns/locale';
 import { LessonAudioPlayer } from '@/components/course/LessonAudioPlayer';
 import { PointsRewardModal } from '@/components/PointsRewardModal';
+import { useAuth } from '@/contexts/auth-context';
+import { usePoints } from '@/contexts/points-context';
+import {
+  COLLECTIONS,
+  createDocument,
+  getDocument,
+  ID,
+  listDocuments,
+  Query,
+  updateDocument,
+  type AppwriteDocument,
+} from '@/lib/appwrite';
+import { getDayUnlocked, getUnlockDateForLesson, parseLocalDateString } from '@/lib/business-days';
+import { awardPoints } from '@/lib/points';
+import { CheckCircle2, ChevronLeft, PenLine, Sparkles, Target } from '@tamagui/lucide-icons';
+import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
+import * as Haptics from 'expo-haptics';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { MotiView } from 'moti';
+import React, { useEffect, useState } from 'react';
+import { Alert, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Button } from 'tamagui';
 
-type Lesson = { day: number; title: string; summary: string | null; mission: string | null; audio_url: string | null };
+type Lesson = { id: number; day: number; title: string; summary: string | null; mission: string | null; audio_url: string | null };
 
 /** En web usamos View con onClick (el div recibe el clic). En móvil TouchableOpacity. */
 function CompleteButton({
@@ -84,6 +84,7 @@ export default function LessonScreen() {
       try {
         const doc = await getDocument<AppwriteDocument>(COLLECTIONS.lessons, String(dayNum));
         setLesson({
+          id: doc.id as number,
           day: dayNum,
           title: (doc.title as string) ?? '',
           summary: (doc.summary as string | null) ?? null,
@@ -106,7 +107,7 @@ export default function LessonScreen() {
         const prog = progList[0];
         if (prog?.completed_at) setCompletedAt(prog.completed_at as string);
         setNotes((prog?.notes as string) ?? '');
-      } catch {}
+      } catch { }
     })();
   }, [dayNum, profile?.id, profile?.org_id]);
 
@@ -120,7 +121,7 @@ export default function LessonScreen() {
       return;
     }
     if (Platform.OS !== 'web') {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => { });
     }
     setSaving(true);
     const now = new Date().toISOString();
@@ -136,6 +137,8 @@ export default function LessonScreen() {
       const doc = existing[0];
       if (doc) {
         await updateDocument(COLLECTIONS.user_lesson_progress, (doc as AppwriteDocument).$id!, {
+          day: dayNum,
+          lesson_id: lesson?.id,
           unlocked_at: now,
           completed_at: now,
           notes: notes.trim() || '',
@@ -146,7 +149,8 @@ export default function LessonScreen() {
           {
             user_id: profile.id,
             org_id: profile.org_id,
-            day: String(dayNum),
+            day: dayNum,
+            lesson_id: lesson?.id,
             unlocked_at: now,
             completed_at: now,
             notes: notes.trim() || '',
@@ -171,7 +175,7 @@ export default function LessonScreen() {
     }
     setSaving(false);
     if (Platform.OS !== 'web') {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => { });
     }
     setCompletedAt(now);
   }
@@ -191,6 +195,8 @@ export default function LessonScreen() {
       const doc = existing[0];
       if (doc) {
         await updateDocument(COLLECTIONS.user_lesson_progress, (doc as AppwriteDocument).$id!, {
+          day: dayNum,
+          lesson_id: lesson?.id,
           notes: notes.trim() || '',
         });
       } else {
@@ -199,7 +205,8 @@ export default function LessonScreen() {
           {
             user_id: profile.id,
             org_id: profile.org_id,
-            day: String(dayNum),
+            day: dayNum,
+            lesson_id: lesson?.id,
             unlocked_at: new Date().toISOString(),
             completed_at: null,
             notes: notes.trim() || '',
@@ -296,24 +303,37 @@ export default function LessonScreen() {
         ) : null}
         <LessonAudioPlayer audioUrl={lesson.audio_url} />
         {lesson.mission ? (
-          <View style={styles.missionBox}>
-            <Text style={styles.missionLabel}>Misión</Text>
-            {missionParagraphs.length > 0 ? (
-              missionParagraphs.map((para, i) => (
-                <Text key={i} style={[styles.mission, i < missionParagraphs.length - 1 && styles.missionParagraph]}>
-                  {para}
-                </Text>
-              ))
-            ) : (
-              <Text style={styles.mission}>{lesson.mission}</Text>
-            )}
+          <View style={styles.missionCard}>
+            <View style={styles.missionHeader}>
+              <View style={styles.missionIconBadge}>
+                <Target size={18} color="#2563eb" strokeWidth={2.5} />
+              </View>
+              <Text style={styles.missionLabel}>Misión del día</Text>
+            </View>
+            <View style={styles.missionContent}>
+              {missionParagraphs.length > 0 ? (
+                missionParagraphs.map((para, i) => (
+                  <Text key={i} style={[styles.missionText, i < missionParagraphs.length - 1 && styles.missionParagraph]}>
+                    {para}
+                  </Text>
+                ))
+              ) : (
+                <Text style={styles.missionText}>{lesson.mission}</Text>
+              )}
+            </View>
           </View>
         ) : null}
-        <View style={styles.notesBox}>
-          <Text style={styles.notesLabel}>Notas</Text>
+
+        <View style={styles.notesSection}>
+          <View style={styles.notesHeader}>
+            <View style={styles.notesIconBadge}>
+              <PenLine size={16} color="#64748b" strokeWidth={2.5} />
+            </View>
+            <Text style={styles.notesLabel}>Mis Notas</Text>
+          </View>
           <TextInput
             style={styles.notesInput}
-            placeholder="Tus notas para esta lección (opcional)"
+            placeholder="Escribe tus reflexiones aquí..."
             placeholderTextColor="#94a3b8"
             value={notes}
             onChangeText={setNotes}
@@ -372,117 +392,196 @@ export default function LessonScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
+  container: { flex: 1, backgroundColor: '#fdfdfe' },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 12,
-    marginBottom: 4,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    paddingHorizontal: 16,
+    paddingTop: Platform.OS === 'ios' ? 48 : 32, // More standard padding
+    paddingBottom: 16,
     backgroundColor: '#ffffff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#f1f5f9',
   },
   backButton: {
     padding: 8,
-    marginRight: 4,
+    marginRight: 10,
+    backgroundColor: '#f8fafc',
+    borderRadius: 10,
   },
-  headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#0f172a' },
-  loadingText: { padding: 24, color: '#64748b' },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#0f172a',
+    letterSpacing: -0.3,
+  },
+  loadingText: { padding: 24, color: '#64748b', textAlign: 'center' },
   scrollView: { flex: 1 },
-  content: { padding: 24, paddingBottom: 120 },
+  content: {
+    padding: 20,
+    paddingBottom: 160,
+    flexGrow: 1,
+  },
   floatingButtonWrap: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    paddingHorizontal: 24,
-    paddingBottom: 32,
-    paddingTop: 12,
+    paddingHorizontal: 20,
+    paddingBottom: 30, // Brought slightly higher
+    backgroundColor: 'transparent',
     zIndex: 1000,
   },
   floatingButtonInner: {
     shadowColor: '#2563eb',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 15,
     elevation: 8,
-    borderRadius: 14,
+    borderRadius: 16,
   },
-  title: { fontSize: 22, fontWeight: 'bold', marginBottom: 12, color: '#0f172a' },
-  summaryBlock: { marginBottom: 16 },
-  summary: { color: '#475569', lineHeight: 22 },
-  summaryParagraph: { marginBottom: 14 },
-  missionBox: { backgroundColor: '#eff6ff', padding: 16, borderRadius: 12, marginBottom: 24, borderLeftWidth: 4, borderLeftColor: '#2563eb' },
-  missionLabel: { fontWeight: 'bold', marginBottom: 8, color: '#1e40af' },
-  mission: { color: '#334155' },
+  title: {
+    fontSize: 24,
+    fontWeight: '900',
+    marginBottom: 16,
+    color: '#0f172a',
+    lineHeight: 30,
+    letterSpacing: -0.6,
+  },
+  summaryBlock: {
+    marginBottom: 20,
+  },
+  summary: {
+    color: '#475569',
+    fontSize: 15,
+    lineHeight: 24,
+  },
+  summaryParagraph: { marginBottom: 12 },
+
+  missionCard: {
+    backgroundColor: '#f0f7ff',
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#dbeafe',
+  },
+  missionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    gap: 10,
+  },
+  missionIconBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: '#ffffff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#2563eb',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  missionLabel: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#1e40af',
+  },
+  missionContent: {
+    paddingLeft: 2,
+  },
+  missionText: {
+    fontSize: 14,
+    color: '#334155',
+    lineHeight: 22,
+  },
   missionParagraph: { marginBottom: 10 },
-  notesBox: {
-    backgroundColor: '#f8fafc',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 24,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
+
+  notesSection: {
+    marginBottom: 20,
   },
-  notesLabel: { fontWeight: 'bold', marginBottom: 8, color: '#475569', fontSize: 14 },
-  notesInput: {
-    minHeight: 100,
-    padding: 12,
+  notesHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    gap: 8,
+  },
+  notesIconBadge: {
+    width: 28,
+    height: 28,
     borderRadius: 8,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
+    backgroundColor: '#f1f5f9',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  notesLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#475569',
+  },
+  notesInput: {
+    minHeight: 120,
+    padding: 16,
+    borderRadius: 16,
+    backgroundColor: '#ffffff',
+    borderWidth: 1.5,
+    borderColor: '#f1f5f9',
     color: '#0f172a',
     fontSize: 15,
     textAlignVertical: 'top',
   },
+
   completedCard: {
-    marginTop: 8,
+    marginTop: 10,
     backgroundColor: '#f0fdf4',
-    borderRadius: 16,
-    padding: 28,
+    borderRadius: 20,
+    padding: 24,
     alignItems: 'center',
     borderWidth: 2,
-    borderColor: '#bbf7d0',
-    shadowColor: '#16a34a',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 6,
+    borderColor: '#dcfce7',
   },
   completedIconWrap: {
     marginBottom: 16,
+    backgroundColor: '#ffffff',
+    padding: 10,
+    borderRadius: 20,
   },
   completedTitle: {
     fontSize: 20,
-    fontWeight: '800',
-    color: '#166534',
+    fontWeight: '900',
+    color: '#14532d',
     marginBottom: 6,
+    textAlign: 'center',
   },
   completedSubtitle: {
     fontSize: 15,
-    color: '#15803d',
-    marginBottom: 16,
+    color: '#166534',
+    marginBottom: 20,
+    textAlign: 'center',
+    opacity: 0.8,
   },
   completedSparkle: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     backgroundColor: '#fef3c7',
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
   },
   completedSparkleText: {
     fontSize: 14,
-    fontWeight: '700',
-    color: '#b45309',
+    fontWeight: '800',
+    color: '#92400e',
   },
+
   completeButton: {
     backgroundColor: '#2563eb',
-    borderRadius: 14,
-    paddingVertical: 14,
+    borderRadius: 16,
+    paddingVertical: 16,
     paddingHorizontal: 24,
     alignItems: 'center',
     justifyContent: 'center',
@@ -491,14 +590,14 @@ const styles = StyleSheet.create({
     cursor: 'pointer',
   },
   completeButtonDisabled: {
-    opacity: 0.7,
+    opacity: 0.6,
   },
   completeButtonText: {
     color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 17,
+    fontWeight: '700',
   },
-  lockedTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 12, textAlign: 'center' },
-  lockedText: { textAlign: 'center', color: '#666', marginBottom: 8 },
-  nextText: { textAlign: 'center', color: '#888', marginBottom: 24, fontSize: 14 },
+  lockedTitle: { fontSize: 22, fontWeight: '900', marginBottom: 12, textAlign: 'center', color: '#0f172a', paddingTop: 40 },
+  lockedText: { textAlign: 'center', color: '#64748b', marginBottom: 12, fontSize: 16, paddingHorizontal: 40 },
+  nextText: { textAlign: 'center', color: '#94a3b8', marginBottom: 32, fontSize: 14, fontWeight: '600' },
 });

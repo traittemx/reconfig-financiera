@@ -1,18 +1,19 @@
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
-  account,
-  createDocument,
-  listDocuments,
   COLLECTIONS,
   Query,
+  account,
+  createDocument,
   docToRow,
+  listDocuments,
+  tryLinkMigratedProfileByEmail,
   type AppwriteDocument,
 } from '@/lib/appwrite';
-import type { Profile, OrgSubscription } from '@/types/database';
+import type { OrgSubscription, Profile } from '@/types/database';
 import { isSubscriptionValid } from '@/types/database';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
-const SESSION_TIMEOUT_MS = 6000;
+const SESSION_TIMEOUT_MS = 15000;
 const PROFILE_TIMEOUT_MS = 8000;
 const AUTH_CACHE_KEY = 'finaria_auth_cache';
 const AUTH_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24h
@@ -70,11 +71,11 @@ async function setAuthCache(
   if (typeof window !== 'undefined' && window.localStorage) {
     try {
       window.localStorage.setItem(AUTH_CACHE_KEY, raw);
-    } catch {}
+    } catch { }
   } else {
     try {
       await AsyncStorage.setItem(AUTH_CACHE_KEY, raw);
-    } catch {}
+    } catch { }
   }
 }
 
@@ -82,11 +83,11 @@ async function clearAuthCache(): Promise<void> {
   if (typeof window !== 'undefined' && window.localStorage) {
     try {
       window.localStorage.removeItem(AUTH_CACHE_KEY);
-    } catch {}
+    } catch { }
   }
   try {
     await AsyncStorage.removeItem(AUTH_CACHE_KEY);
-  } catch {}
+  } catch { }
 }
 
 function mapSubscriptionDoc(doc: AppwriteDocument): OrgSubscription {
@@ -205,6 +206,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(null);
       setProfile(null);
       setSubscription(null);
+      // Only clear if we are sure there is no session (e.g. not on the very first mount if it timed out)
+      // but account.get() rejection usually means no session or networking error.
+      // If result was null/undefined, definitely no session.
       clearAuthCache();
       return;
     }
@@ -228,7 +232,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       let doc = await getProfileByUserId(userId);
       let prof: Profile | null = doc ? (docToRow(doc) as unknown as Profile) : null;
       if (!prof) {
-        prof = await tryCreateMinimalProfile(userId);
+        const email = (user as { email?: string }).email;
+        if (email) {
+          try {
+            await tryLinkMigratedProfileByEmail(email, userId);
+            doc = await getProfileByUserId(userId);
+            prof = doc ? (docToRow(doc) as unknown as Profile) : null;
+          } catch {
+            /* ignore migration link errors */
+          }
+        }
+        if (!prof) prof = await tryCreateMinimalProfile(userId);
       }
       if (prof && !prof.id) prof.id = userId;
       setProfile(prof);
@@ -253,7 +267,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [loadProfileAndSubscription]);
+  }, []);
 
   const setSessionAndLoadProfile = useCallback(async (userId: string, subscriptionOverride?: OrgSubscription | null): Promise<{ ok: boolean; error?: string }> => {
     setSession({ user: { id: userId } });
@@ -265,7 +279,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       ]).catch(() => null);
       let prof: Profile | null = doc ? (docToRow(doc) as unknown as Profile) : null;
       if (!prof) {
-        prof = await tryCreateMinimalProfile(userId);
+        try {
+          const user = await account.get();
+          const email = (user as { email?: string }).email;
+          if (email) {
+            await tryLinkMigratedProfileByEmail(email, userId);
+            doc = await getProfileByUserId(userId);
+            prof = doc ? (docToRow(doc) as unknown as Profile) : null;
+          }
+        } catch {
+          /* ignore */
+        }
+        if (!prof) prof = await tryCreateMinimalProfile(userId);
       }
       if (prof && !prof.id) prof.id = userId;
       if (subscriptionOverride != null && prof) {
@@ -313,15 +338,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     refresh();
-  }, [refresh]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const canAccessApp =
-    !!session &&
-    !!profile &&
-    (profile.role === 'SUPER_ADMIN' ||
-      (profile.org_id &&
-        subscription &&
-        isSubscriptionValid(subscription.status, subscription.period_end)));
+  const canAccessApp = useMemo(
+    () =>
+      !!session &&
+      !!profile &&
+      (profile.role === 'SUPER_ADMIN' ||
+        !!(profile.org_id &&
+          subscription &&
+          isSubscriptionValid(subscription.status, subscription.period_end))),
+    [session, profile, subscription]
+  );
 
   return (
     <AuthContext.Provider

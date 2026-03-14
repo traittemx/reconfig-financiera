@@ -1,0 +1,23 @@
+[
+  {
+    "id": "ac771ead-9257-420f-ac77-2a536ca1fa1c",
+    "name": "Empresa Demo",
+    "slug": "empresa-demo",
+    "linking_code": null,
+    "created_at": "2026-01-30T20:28:23.223+00:00"
+  },
+  {
+    "id": "c0145c29-c470-4808-8ab2-79dc205bdb49",
+    "name": "Notaria 2",
+    "slug": "notaria-2",
+    "linking_code": "E8TBQF2E",
+    "created_at": "2026-02-06T04:25:45.469+00:00"
+  },
+  {
+    "id": "7d8b7c64-f085-4465-9395-f638cf23c402",
+    "name": "Traitte",
+    "slug": "traitte",
+    "linking_code": "T2PXBQ4V",
+    "created_at": "2026-02-06T06:31:48.979+00:00"
+  }
+]
