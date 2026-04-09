@@ -29,7 +29,7 @@ export default function FinanceLayout() {
         headerShown: true,
         headerTitleStyle: { fontSize: 18, fontWeight: '700', color: '#1e293b' },
         headerShadowVisible: false,
-        headerStyle: { backgroundColor: '#f8fafc' },
+        headerStyle: { backgroundColor: '#f1f5f9' },
         headerRight: () => <PointsBadge />,
       }}
     >

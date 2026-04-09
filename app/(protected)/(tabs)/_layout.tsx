@@ -7,7 +7,7 @@ export default function TabsLayout() {
     <Tabs
       screenOptions={{
         headerShown: true,
-        tabBarActiveTintColor: '#2563eb',
+        tabBarActiveTintColor: '#0d9488',
         sceneContainerStyle: { flex: 1 },
         headerRight: () => <PointsBadge />,
       }}

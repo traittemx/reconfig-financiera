@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Finaria",
-    "slug": "finaria-9-xkfas0ovt9wsitgmtkt",
+    "slug": "finaria-finanzas-personales-",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -55,7 +55,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "e163260a-a4f5-4838-96f2-e7c53fff30fd"
+        "projectId": "7996b806-288d-4008-b3ed-4492cbe16f81"
       }
     },
     "owner": "mikemhz"

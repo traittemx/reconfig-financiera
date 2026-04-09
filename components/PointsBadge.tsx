@@ -8,7 +8,7 @@ export function PointsBadge() {
 
   return (
     <View style={styles.badge}>
-      <Trophy size={18} color="#2563eb" />
+      <Trophy size={18} color="#0d9488" />
       <Text style={styles.text}>{total} pts</Text>
     </View>
   );
@@ -21,13 +21,13 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingHorizontal: 12,
     paddingVertical: 6,
-    backgroundColor: '#eff6ff',
+    backgroundColor: 'rgba(13, 148, 136, 0.12)',
     borderRadius: 20,
     marginRight: 8,
   },
   text: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#1e40af',
+    color: '#0f766e',
   },
 });

@@ -9,7 +9,6 @@ import {
   Platform,
   Dimensions,
 } from 'react-native';
-import { Link } from 'expo-router';
 import {
   GraduationCap,
   Wallet,
@@ -50,6 +49,14 @@ const COLORS = {
 export default function LandingScreen() {
   const handleWhatsAppPress = () => {
     Linking.openURL('https://w.app/yrpyco');
+  };
+
+  const handleSignupPress = () => {
+    Linking.openURL('https://app.finaria.mx/signup');
+  };
+
+  const handleAuthPress = () => {
+    Linking.openURL('https://app.finaria.mx/auth');
   };
 
   const curriculumDays = [
@@ -135,12 +142,10 @@ export default function LandingScreen() {
               <MessageCircle size={20} color={COLORS.white} />
               <Text style={styles.primaryButtonText}>Afiliar mi empresa</Text>
             </Pressable>
-            <Link href="/(public)/signup" asChild>
-              <Pressable style={styles.secondaryButton}>
-                <Text style={styles.secondaryButtonText}>Ya tengo código de empresa</Text>
-                <ArrowRight size={18} color={COLORS.primary} />
-              </Pressable>
-            </Link>
+            <Pressable style={styles.secondaryButton} onPress={handleSignupPress}>
+              <Text style={styles.secondaryButtonText}>Ya tengo código de empresa</Text>
+              <ArrowRight size={18} color={COLORS.primary} />
+            </Pressable>
           </View>
         </View>
         <View style={styles.heroDecoration}>
@@ -307,18 +312,14 @@ export default function LandingScreen() {
           de vinculación que te proporcionaron.
         </Text>
         <View style={styles.employeeButtons}>
-          <Link href="/(public)/signup" asChild>
-            <Pressable style={styles.employeeButton}>
-              <Users size={20} color={COLORS.white} />
-              <Text style={styles.employeeButtonText}>Crear mi cuenta</Text>
-            </Pressable>
-          </Link>
-          <Link href="/(public)/auth" asChild>
-            <Pressable style={styles.loginButton}>
-              <Text style={styles.loginButtonText}>Ya tengo cuenta</Text>
-              <ArrowRight size={18} color={COLORS.primary} />
-            </Pressable>
-          </Link>
+          <Pressable style={styles.employeeButton} onPress={handleSignupPress}>
+            <Users size={20} color={COLORS.white} />
+            <Text style={styles.employeeButtonText}>Crear mi cuenta</Text>
+          </Pressable>
+          <Pressable style={styles.loginButton} onPress={handleAuthPress}>
+            <Text style={styles.loginButtonText}>Ya tengo cuenta</Text>
+            <ArrowRight size={18} color={COLORS.primary} />
+          </Pressable>
         </View>
       </View>
 
